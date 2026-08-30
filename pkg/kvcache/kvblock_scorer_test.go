@@ -99,6 +99,102 @@ func TestLongestPrefixScorerDifferentTiers(t *testing.T) {
 	}
 }
 
+func TestLongestPrefixScorerWeightByPrefixTokens(t *testing.T) {
+	// 4 CPU blocks * 16 tokens = 64 tokens -> 0.72 bucket.
+	// 10 CPU blocks * 16 = 160 tokens -> still 0.72.
+	// 128 CPU blocks * 16 = 2048 tokens -> 0.80 bucket.
+	scorer, err := kvcache.NewKVBlockScorer(&kvcache.KVBlockScorerConfig{
+		ScoringStrategy: kvcache.LongestPrefixMatch,
+		BlockSizeTokens: 16,
+		BackendConfigs: []*kvcache.KVCacheBackendConfig{
+			{Name: "gpu", Weight: 1.0},
+			{
+				Name:   "cpu",
+				Weight: 0.8,
+				WeightByPrefixTokens: []kvcache.PrefixTokenWeight{
+					{MaxTokens: 1024, Weight: 0.72},
+					{MaxTokens: 2048, Weight: 0.80},
+					{MaxTokens: 0, Weight: 0.98},
+				},
+			},
+		},
+	})
+	assert.NoError(t, err)
+
+	t.Run("short cpu prefix uses first bucket", func(t *testing.T) {
+		keys := int64KeysToKVBlockKeys([]uint64{1, 2, 3, 4})
+		hitmap := map[kvblock.BlockHash][]kvblock.PodEntry{
+			1: {{PodIdentifier: podA, DeviceTier: "cpu"}},
+			2: {{PodIdentifier: podA, DeviceTier: "cpu"}},
+			3: {{PodIdentifier: podA, DeviceTier: "cpu"}},
+			4: {{PodIdentifier: podA, DeviceTier: "cpu"}},
+		}
+		scored, err := scorer.Score(context.Background(), keys, hitmap)
+		assert.NoError(t, err)
+		assert.InDelta(t, 4*0.72, scored[podA], 1e-9)
+	})
+
+	t.Run("mixed prefix looks up cpu weight from cpu tokens only", func(t *testing.T) {
+		// 6 GPU + 4 CPU. CPU tokens = 64, so w_CPU=0.72, not the catch-all.
+		keys := int64KeysToKVBlockKeys([]uint64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
+		hitmap := map[kvblock.BlockHash][]kvblock.PodEntry{}
+		for i, k := range keys {
+			tier := "gpu"
+			if i >= 6 {
+				tier = "cpu"
+			}
+			hitmap[k] = []kvblock.PodEntry{{PodIdentifier: podA, DeviceTier: tier}}
+		}
+		scored, err := scorer.Score(context.Background(), keys, hitmap)
+		assert.NoError(t, err)
+		assert.InDelta(t, 6*1.0+4*0.72, scored[podA], 1e-9)
+	})
+
+	t.Run("long cpu prefix uses catch-all", func(t *testing.T) {
+		n := 130 // 130*16 = 2080 tokens > 2048
+		keys := make([]kvblock.BlockHash, n)
+		hitmap := make(map[kvblock.BlockHash][]kvblock.PodEntry, n)
+		for i := range n {
+			h := kvblock.BlockHash(uint64(i + 1))
+			keys[i] = h
+			hitmap[h] = []kvblock.PodEntry{{PodIdentifier: podA, DeviceTier: "cpu"}}
+		}
+		scored, err := scorer.Score(context.Background(), keys, hitmap)
+		assert.NoError(t, err)
+		assert.InDelta(t, float64(n)*0.98, scored[podA], 1e-9)
+	})
+
+	t.Run("gpu+cpu same block prefers gpu", func(t *testing.T) {
+		keys := int64KeysToKVBlockKeys([]uint64{1})
+		hitmap := map[kvblock.BlockHash][]kvblock.PodEntry{
+			1: {
+				{PodIdentifier: podA, DeviceTier: "cpu"},
+				{PodIdentifier: podA, DeviceTier: "gpu"},
+			},
+		}
+		scored, err := scorer.Score(context.Background(), keys, hitmap)
+		assert.NoError(t, err)
+		assert.InDelta(t, 1.0, scored[podA], 1e-9)
+	})
+}
+
+func TestNewKVBlockScorerRejectsDuplicateBuckets(t *testing.T) {
+	_, err := kvcache.NewKVBlockScorer(&kvcache.KVBlockScorerConfig{
+		ScoringStrategy: kvcache.LongestPrefixMatch,
+		BackendConfigs: []*kvcache.KVCacheBackendConfig{
+			{
+				Name:   "cpu",
+				Weight: 0.8,
+				WeightByPrefixTokens: []kvcache.PrefixTokenWeight{
+					{MaxTokens: 1024, Weight: 0.7},
+					{MaxTokens: 1024, Weight: 0.8},
+				},
+			},
+		},
+	})
+	assert.Error(t, err)
+}
+
 func int64KeysToKVBlockKeys(keys []uint64) []kvblock.BlockHash {
 	kvKeys := make([]kvblock.BlockHash, len(keys))
 	for i, key := range keys {

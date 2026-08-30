@@ -272,7 +272,7 @@ func TestPDSchedule(t *testing.T) {
 			if test.wantRes2 != nil { // Checking the prefix match in the decode pod.
 				// update number of cached tokens for the following schedule call
 				for _, pod := range test.input {
-					pod.Put(attrprefix.PrefixCacheMatchInfoDataKey, attrprefix.NewPrefixCacheMatchInfo(inputTokens, inputTokens, 1))
+					pod.Put(attrprefix.PrefixCacheMatchInfoDataKey, attrprefix.NewPrefixCacheMatchInfo(float64(inputTokens), inputTokens, 1))
 				}
 
 				// Fresh request for the second schedule call so per-request

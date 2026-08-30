@@ -194,7 +194,7 @@ func TestProduce_UsesTokenizedRequest(t *testing.T) {
 	require.True(t, ok)
 	info, ok := raw.(*attrprefix.PrefixCacheMatchInfo)
 	require.True(t, ok)
-	assert.Equal(t, 1, info.MatchBlocks())
+	assert.InDelta(t, 1, info.MatchBlocks(), 1e-9)
 	assert.Equal(t, 1, info.TotalBlocks())
 	assert.Equal(t, 16, info.BlockSizeTokens())
 	assert.Nil(t, info.MM(), "text-only request must leave MM untracked")
@@ -202,7 +202,7 @@ func TestProduce_UsesTokenizedRequest(t *testing.T) {
 	raw2, ok := testEndpoints[1].Get(attrprefix.PrefixCacheMatchInfoDataKey.WithNonEmptyProducerName("test"))
 	require.True(t, ok)
 	info2 := raw2.(*attrprefix.PrefixCacheMatchInfo)
-	assert.Equal(t, 0, info2.MatchBlocks())
+	assert.InDelta(t, 0, info2.MatchBlocks(), 1e-9)
 	assert.Equal(t, 1, info2.TotalBlocks())
 	assert.Nil(t, info2.MM(), "text-only request must leave MM untracked")
 }
@@ -359,14 +359,14 @@ func TestProduce_MultiPromptSkipsEmptyPromptKeys(t *testing.T) {
 	require.True(t, ok)
 	info, ok := raw.(*attrprefix.PrefixCacheMatchInfo)
 	require.True(t, ok)
-	assert.Equal(t, 1, info.MatchBlocks())
+	assert.InDelta(t, 1, info.MatchBlocks(), 1e-9)
 	assert.Equal(t, 1, info.TotalBlocks())
 
 	raw, ok = endpoints[1].Get(attrprefix.PrefixCacheMatchInfoDataKey.WithNonEmptyProducerName("test"))
 	require.True(t, ok)
 	info, ok = raw.(*attrprefix.PrefixCacheMatchInfo)
 	require.True(t, ok)
-	assert.Equal(t, 0, info.MatchBlocks())
+	assert.InDelta(t, 0, info.MatchBlocks(), 1e-9)
 	assert.Equal(t, 1, info.TotalBlocks())
 }
 
@@ -471,7 +471,7 @@ func TestProduce_MMMatchUsesCachedBlocksNotWeightedScore(t *testing.T) {
 			},
 		},
 	}
-	// Weighted score 3.2 gives matchLen=3, while all 4 blocks are cached.
+	// Weighted score 3.2 is stored in MatchBlocks; all 4 blocks are cached.
 	scorer := &fakeKVBlockScorer{
 		score: func(_ context.Context, _ []kvblock.BlockHash, _ map[kvblock.BlockHash][]kvblock.PodEntry) (map[string]float64, error) {
 			return map[string]float64{addr: 3.2}, nil
@@ -504,10 +504,60 @@ func TestProduce_MMMatchUsesCachedBlocksNotWeightedScore(t *testing.T) {
 	info, ok := raw.(*attrprefix.PrefixCacheMatchInfo)
 	require.True(t, ok)
 
-	assert.Equal(t, 3, info.MatchBlocks())
+	assert.InDelta(t, 3.2, info.MatchBlocks(), 1e-9)
 	assert.Equal(t, 4, info.CachedBlockCount())
 	require.NotNil(t, info.MM())
 	assert.Equal(t, 1, info.MM().MatchBlocks, "must use cachedBlocks, not matchLen")
+}
+
+func TestProduce_DoesNotTruncateFractionalScore(t *testing.T) {
+	ctx := utils.NewTestContext(t)
+
+	tokens := make([]uint32, testBlockSize)
+	for i := range tokens {
+		tokens[i] = uint32(i)
+	}
+	const addr = "10.0.0.1:8080"
+
+	idx := &fakeKVCacheIndexer{
+		computeFromTokens: func(_ context.Context, _ []uint32, _ string, _ []*kvblock.BlockExtraFeatures) ([]kvblock.BlockHash, error) {
+			return []kvblock.BlockHash{0xAA}, nil
+		},
+		index: &fakeKVBlockIndex{
+			lookup: func(_ context.Context, _ []kvblock.BlockHash, _ sets.Set[string]) (map[kvblock.BlockHash][]kvblock.PodEntry, error) {
+				return map[kvblock.BlockHash][]kvblock.PodEntry{
+					0xAA: {{PodIdentifier: addr, DeviceTier: "cpu"}},
+				}, nil
+			},
+		},
+	}
+	scorer := &fakeKVBlockScorer{
+		score: func(_ context.Context, _ []kvblock.BlockHash, _ map[kvblock.BlockHash][]kvblock.PodEntry) (map[string]float64, error) {
+			return map[string]float64{addr: 0.8}, nil
+		},
+	}
+
+	p := newProducerWithIndexer(ctx, idx, scorer)
+	endpoints := freshEndpoints()
+	req := &scheduling.InferenceRequest{
+		RequestID:   "req-cpu-one-block",
+		TargetModel: "test-model",
+		Body: &fwkrh.InferenceRequestBody{
+			TokenizedRequest: &fwkrh.TokenizedRequest{
+				Prompts: []fwkrh.PromptTokens{{TokenIDs: tokens}},
+			},
+		},
+	}
+
+	require.NoError(t, p.Produce(ctx, req, endpoints))
+
+	raw, ok := endpoints[0].Get(attrprefix.PrefixCacheMatchInfoDataKey.WithNonEmptyProducerName("test"))
+	require.True(t, ok)
+	info, ok := raw.(*attrprefix.PrefixCacheMatchInfo)
+	require.True(t, ok)
+	assert.InDelta(t, 0.8, info.MatchBlocks(), 1e-9)
+	assert.Equal(t, 1, info.CachedBlockCount())
+	assert.Equal(t, 1, info.TotalBlocks())
 }
 
 // Multimodal features flow through to ComputeBlockKeysFromTokens.

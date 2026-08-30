@@ -292,7 +292,7 @@ func TestLegacyProducer_TokensFlowToEndpointAttribute(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, len(tokens)/blockSize, info.TotalBlocks(),
 		"totalBlocks must reflect tokens produced by the wrapper-owned pool")
-	assert.Equal(t, 0, info.MatchBlocks(),
+	assert.InDelta(t, 0, info.MatchBlocks(), 1e-9,
 		"empty index → no matches")
 }
 

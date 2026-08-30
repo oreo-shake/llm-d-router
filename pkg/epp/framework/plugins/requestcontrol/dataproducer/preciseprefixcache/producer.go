@@ -177,6 +177,7 @@ func New(ctx context.Context, name string, config PluginConfig) (*Producer, erro
 	if config.IndexerConfig != nil && config.IndexerConfig.BackendConfigs != nil {
 		scorerConfig.BackendConfigs = config.IndexerConfig.BackendConfigs
 	}
+	scorerConfig.BlockSizeTokens = tokenProcessor.BlockSize()
 	kvBlockScorer, err := kvcache.NewKVBlockScorer(scorerConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create KVBlockScorer: %w", err)
@@ -370,16 +371,16 @@ func (p *Producer) produceFromBlockKeys(ctx context.Context, span trace.Span,
 		lookups = append(lookups, promptLookup{keys: blockKeys, keyToPods: keyToPods})
 	}
 
-	maxMatch := 0
+	maxMatch := 0.0
 	for _, ep := range endpoints {
 		md := ep.GetMetadata()
 		if md == nil {
 			continue
 		}
 		addr := fmt.Sprintf("%s:%s", md.Address, md.Port)
-		matchLen := int(aggregatedScores[addr])
-		if matchLen > maxMatch {
-			maxMatch = matchLen
+		score := aggregatedScores[addr]
+		if score > maxMatch {
+			maxMatch = score
 		}
 		cachedBlocks := 0
 		cachedBlocksByTier := map[string]int{}
@@ -389,7 +390,7 @@ func (p *Producer) produceFromBlockKeys(ctx context.Context, span trace.Span,
 				cachedBlocksByTier[tier] += count
 			}
 		}
-		info := attrprefix.NewPrefixCacheMatchInfo(matchLen, totalBlocks, p.blockSizeTokens).
+		info := attrprefix.NewPrefixCacheMatchInfo(score, totalBlocks, p.blockSizeTokens).
 			WithCachedBlockCount(cachedBlocks).
 			WithCachedBlocksByTier(cachedBlocksByTier)
 		if len(mmBlockIndices) > 0 {
@@ -405,7 +406,7 @@ func (p *Producer) produceFromBlockKeys(ctx context.Context, span trace.Span,
 
 	span.SetAttributes(
 		attribute.Int("llm_d.epp.producer.total_blocks", totalBlocks),
-		attribute.Int("llm_d.epp.producer.max_match_blocks", maxMatch),
+		attribute.Int("llm_d.epp.producer.max_match_blocks", int(maxMatch)),
 	)
 
 	logger.V(logging.TRACE).Info("Produce completed",

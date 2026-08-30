@@ -97,7 +97,7 @@ func TestProduce(t *testing.T) {
 		info, ok := ep.Get(key)
 		assert.True(t, ok)
 		prefixInfo := info.(*attrprefix.PrefixCacheMatchInfo)
-		assert.Equal(t, 0, prefixInfo.MatchBlocks())
+		assert.InDelta(t, 0, prefixInfo.MatchBlocks(), 1e-9)
 		assert.Equal(t, 2, prefixInfo.TotalBlocks())
 	}
 }
@@ -273,18 +273,18 @@ func TestPrefixPluginPartialPrefixMatch(t *testing.T) {
 	// Verify pod1 has the correct prefix match info
 	info1, _ := endpoint1.Get(key)
 	prefixInfo1 := info1.(*attrprefix.PrefixCacheMatchInfo)
-	assert.Equal(t, 1, prefixInfo1.MatchBlocks()) // one block (token 1) matches
-	assert.Equal(t, 2, prefixInfo1.TotalBlocks()) // [1, 3] -> 2 blocks
+	assert.InDelta(t, 1, prefixInfo1.MatchBlocks(), 1e-9) // one block (token 1) matches
+	assert.Equal(t, 2, prefixInfo1.TotalBlocks())         // [1, 3] -> 2 blocks
 
 	// Verify pod3 (prefill node) also has the match
 	info3, _ := endpoint3.Get(key)
 	prefixInfo3 := info3.(*attrprefix.PrefixCacheMatchInfo)
-	assert.Equal(t, 1, prefixInfo3.MatchBlocks())
+	assert.InDelta(t, 1, prefixInfo3.MatchBlocks(), 1e-9)
 
 	// Verify pod2 has no match info
 	info2, _ := endpoint2.Get(key)
 	prefixInfo2 := info2.(*attrprefix.PrefixCacheMatchInfo)
-	assert.Equal(t, 0, prefixInfo2.MatchBlocks())
+	assert.InDelta(t, 0, prefixInfo2.MatchBlocks(), 1e-9)
 }
 
 func TestPrefixPluginPrefixGrowth(t *testing.T) {
@@ -335,7 +335,7 @@ func TestPrefixPluginPrefixGrowth(t *testing.T) {
 	key := attrprefix.PrefixCacheMatchInfoDataKey.WithNonEmptyProducerName(ApproxPrefixCachePluginType)
 	info, _ := endpoint1.Get(key)
 	prefixInfo := info.(*attrprefix.PrefixCacheMatchInfo)
-	assert.Greater(t, prefixInfo.MatchBlocks(), 0, "should have prefix cache hit")
+	assert.Greater(t, prefixInfo.MatchBlocks(), 0.0, "should have prefix cache hit")
 	assert.Equal(t, extendedHashCount, prefixInfo.TotalBlocks())
 }
 
@@ -698,7 +698,7 @@ func TestProduce_MultiPrompt(t *testing.T) {
 	info, ok := endpoint.Get(key)
 	assert.True(t, ok)
 	prefixInfo := info.(*attrprefix.PrefixCacheMatchInfo)
-	assert.Equal(t, 0, prefixInfo.MatchBlocks(), "empty indexer -> no match")
+	assert.InDelta(t, 0, prefixInfo.MatchBlocks(), 1e-9, "empty indexer -> no match")
 	assert.Equal(t, 5, prefixInfo.TotalBlocks(), "total blocks = 3 + 2")
 }
 
@@ -751,7 +751,7 @@ func TestMultiPromptMatchAggregation(t *testing.T) {
 	key := attrprefix.PrefixCacheMatchInfoDataKey.WithNonEmptyProducerName(ApproxPrefixCachePluginType)
 	info, _ := endpoint.Get(key)
 	prefixInfo := info.(*attrprefix.PrefixCacheMatchInfo)
-	assert.Equal(t, 5, prefixInfo.MatchBlocks(), "all 5 blocks (3+2) should match")
+	assert.InDelta(t, 5, prefixInfo.MatchBlocks(), 1e-9, "all 5 blocks (3+2) should match")
 	assert.Equal(t, 5, prefixInfo.TotalBlocks())
 }
 
@@ -804,7 +804,7 @@ func TestMultiPromptPartialMatch(t *testing.T) {
 	key := attrprefix.PrefixCacheMatchInfoDataKey.WithNonEmptyProducerName(ApproxPrefixCachePluginType)
 	info, _ := endpoint.Get(key)
 	prefixInfo := info.(*attrprefix.PrefixCacheMatchInfo)
-	assert.Equal(t, 2, prefixInfo.MatchBlocks(), "only first prompt's 2 blocks should match")
+	assert.InDelta(t, 2, prefixInfo.MatchBlocks(), 1e-9, "only first prompt's 2 blocks should match")
 	assert.Equal(t, 4, prefixInfo.TotalBlocks(), "total blocks = 2 + 2")
 }
 
@@ -844,7 +844,7 @@ func TestPrefixPluginTokenizedRequest(t *testing.T) {
 	info, ok := endpoint.Get(key)
 	assert.True(t, ok)
 	prefixInfo := info.(*attrprefix.PrefixCacheMatchInfo)
-	assert.Equal(t, 0, prefixInfo.MatchBlocks())
+	assert.InDelta(t, 0, prefixInfo.MatchBlocks(), 1e-9)
 	assert.Equal(t, 4, prefixInfo.TotalBlocks())
 }
 

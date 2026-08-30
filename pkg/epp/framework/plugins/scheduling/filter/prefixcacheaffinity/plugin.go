@@ -238,7 +238,7 @@ func (p *Plugin) prefixCacheScore(ep fwksched.Endpoint) float64 {
 	if raw, ok := ep.Get(p.prefixMatchDataKey); ok {
 		info := raw.(*attrprefix.PrefixCacheMatchInfo)
 		if info.TotalBlocks() > 0 {
-			score := float64(info.MatchBlocks()) / float64(info.TotalBlocks())
+			score := info.MatchBlocks() / float64(info.TotalBlocks())
 			if !math.IsNaN(score) {
 				return score
 			}

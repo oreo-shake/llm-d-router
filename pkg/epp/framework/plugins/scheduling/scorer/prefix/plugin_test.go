@@ -85,6 +85,24 @@ func TestPrefixPluginScore(t *testing.T) {
 	assert.Equal(t, 0.2, scores[endpoint2])
 }
 
+func TestPrefixPluginScoreFractionalMatchBlocks(t *testing.T) {
+	producerName := "precise-prefix-cache-producer"
+	p, err := New(context.Background(), PrefixCacheScorerPluginType, producerName)
+	require.NoError(t, err)
+
+	key := attrprefix.PrefixCacheMatchInfoDataKey.WithNonEmptyProducerName(producerName)
+
+	cpuHit := fwksched.NewEndpoint(&fwkdl.EndpointMetadata{ID: k8stypes.NamespacedName{Name: "cpu"}}, fwkdl.NewMetrics(), nil)
+	cpuHit.Put(key, attrprefix.NewPrefixCacheMatchInfo(0.8, 1, 16).WithCachedBlockCount(1))
+
+	gpuHit := fwksched.NewEndpoint(&fwkdl.EndpointMetadata{ID: k8stypes.NamespacedName{Name: "gpu"}}, fwkdl.NewMetrics(), nil)
+	gpuHit.Put(key, attrprefix.NewPrefixCacheMatchInfo(1, 1, 16).WithCachedBlockCount(1))
+
+	scores := p.Score(context.Background(), nil, []fwksched.Endpoint{cpuHit, gpuHit})
+	assert.InDelta(t, 0.8, scores[cpuHit], 1e-9)
+	assert.InDelta(t, 1.0, scores[gpuHit], 1e-9)
+}
+
 func TestPrefixPluginScoreAggregatesMissingMatchInfo(t *testing.T) {
 	producerName := "precise-prefix-cache-producer"
 	p, err := New(context.Background(), PrefixCacheScorerPluginType, producerName)

@@ -16,10 +16,45 @@ plugins:
   - type: precise-prefix-cache-producer
     parameters:
       tokenProcessorConfig:
-        blockSize: 64
+        # Must match vLLM block_size. Token lookup is n_cpu_blocks * this value.
+        blockSizeTokens: 16
       indexerConfig:
         kvBlockIndexConfig:
           enableMetrics: true       # enable kv-block index metrics (prometheus)
+        # CPU buckets: Method I pooled p50 w_CPU(n) from
+        # reports/calibrate-cpu-weight-20260828-100914 (ALL, ttft_s).
+        # First bucket with maxTokens >= n_cpu_tokens wins; maxTokens 0 is
+        # the catch-all. weight is fallback and GPU-vs-CPU tier pick.
+        kvCacheBackendConfigs:
+          - name: gpu
+            weight: 1.0
+          - name: cpu
+            weight: 0.8
+            weightByPrefixTokens:
+              - { maxTokens: 256,    weight: 0.0 }
+              - { maxTokens: 384,    weight: 0.2436 }
+              - { maxTokens: 512,    weight: 0.4403 }
+              - { maxTokens: 768,    weight: 0.6225 }
+              - { maxTokens: 1024,   weight: 0.7177 }
+              - { maxTokens: 1536,   weight: 0.7608 }
+              - { maxTokens: 2048,   weight: 0.8021 }
+              - { maxTokens: 3072,   weight: 0.8447 }
+              - { maxTokens: 4096,   weight: 0.8577 }
+              - { maxTokens: 6144,   weight: 0.8811 }
+              - { maxTokens: 8192,   weight: 0.8914 }
+              - { maxTokens: 12288,  weight: 0.9075 }
+              - { maxTokens: 16384,  weight: 0.9118 }
+              - { maxTokens: 24576,  weight: 0.9307 }
+              - { maxTokens: 32768,  weight: 0.9418 }
+              - { maxTokens: 49152,  weight: 0.9532 }
+              - { maxTokens: 65536,  weight: 0.9608 }
+              - { maxTokens: 98304,  weight: 0.9675 }
+              - { maxTokens: 131072, weight: 0.9761 }
+              - { maxTokens: 163840, weight: 0.9741 }
+              - { maxTokens: 196608, weight: 0.9781 }
+              - { maxTokens: 229376, weight: 0.9805 }
+              - { maxTokens: 245760, weight: 0.9814 }
+              - { maxTokens: 0,      weight: 0.9814 }
   - type: prefix-cache-scorer
     parameters:
       prefixMatchInfoProducerName: precise-prefix-cache-producer

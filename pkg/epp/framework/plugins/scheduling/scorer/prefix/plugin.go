@@ -155,13 +155,15 @@ func (p *Plugin) Score(ctx context.Context, _ *fwksched.InferenceRequest, endpoi
 			continue
 		}
 
-		matchRatioScore := float64(matchBlocks) / float64(totalBlocks)
+		matchRatioScore := matchBlocks / float64(totalBlocks)
 		blockSize := prefixMatchInfo.BlockSizeTokens()
 		matchLengthScore := 0.0
-		// Calculate matchLengthScore when match length is considered
+		// Calculate matchLengthScore when match length is considered.
+		// Length uses the unweighted cached-block count so device-tier
+		// weights do not shrink the token estimate.
 		if p.matchLengthWeight > 0.0 && blockSize > 0 {
-			// (matchBlocks * blockSize / matchLengthScaleTokens) ^ 2
-			normalizedMatchLength := math.Min(1.0, float64(matchBlocks)*float64(blockSize)/float64(p.matchLengthScaleTokens))
+			// (cachedBlockCount * blockSize / matchLengthScaleTokens) ^ 2
+			normalizedMatchLength := math.Min(1.0, float64(prefixMatchInfo.CachedBlockCount())*float64(blockSize)/float64(p.matchLengthScaleTokens))
 			matchLengthScore = normalizedMatchLength * normalizedMatchLength
 		}
 		scores[endpoint] += p.matchLengthWeight*matchLengthScore + (1.0-p.matchLengthWeight)*matchRatioScore

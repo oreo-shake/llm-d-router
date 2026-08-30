@@ -28,8 +28,9 @@ indexer owns block-key computation, index lookup, and scoring.
 - **Scoring.** A `KVBlockScorer` reduces the lookup result to per-pod scores.
   The default `LongestPrefixScorer` credits each pod for its longest run of
   consecutive block hits starting from block 0, weighted per device tier
-  (`BackendConfigs`), so a pod that holds a longer contiguous prefix ranks
-  higher.
+  (`BackendConfigs`). A tier may set `weightByPrefixTokens` so one weight is
+  looked up from that tier's consecutive matched token count and applied to
+  every block of the tier in the prefix.
 - **Tracing.** The index and scorer are wrapped with OpenTelemetry
   instrumentation that is a no-op when tracing is not configured.
 

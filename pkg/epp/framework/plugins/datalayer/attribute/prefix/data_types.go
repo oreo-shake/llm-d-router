@@ -36,7 +36,7 @@ type PrefixCacheMatchInfo struct {
 	// matched prefix length in blocks. For the precise prefix cache this is the
 	// device-tier-weighted longest-prefix score (e.g. RAM-tier blocks count as
 	// less than 1.0), suitable for relative endpoint ranking.
-	matchBlocks int
+	matchBlocks float64
 	// total length in blocks
 	totalBlocks int
 	// block length in tokens
@@ -45,7 +45,7 @@ type PrefixCacheMatchInfo struct {
 	// Unlike matchBlocks this is the literal number of cached blocks regardless
 	// of device tier, so consumers that convert blocks to a token count (e.g.
 	// the prefix-based PD decider) get an accurate cached-token figure rather
-	// than a tier-attenuated one. Defaults to matchBlocks when not set.
+	// than a tier-attenuated one. Defaults to int(matchBlocks) when not set.
 	cachedBlockCount int
 	// per device tier, the unweighted count of contiguous cached prefix blocks
 	// the endpoint holds in that tier, from the first block until the first
@@ -61,12 +61,12 @@ type MMMatchInfo struct {
 	MatchBlocks int
 }
 
-func NewPrefixCacheMatchInfo(matchBlocks, totalBlocks, blockSizeTokens int) *PrefixCacheMatchInfo {
+func NewPrefixCacheMatchInfo(matchBlocks float64, totalBlocks, blockSizeTokens int) *PrefixCacheMatchInfo {
 	return &PrefixCacheMatchInfo{
 		matchBlocks:      matchBlocks,
 		totalBlocks:      totalBlocks,
 		blockSizeTokens:  blockSizeTokens,
-		cachedBlockCount: matchBlocks,
+		cachedBlockCount: int(matchBlocks),
 	}
 }
 
@@ -85,7 +85,7 @@ func (p *PrefixCacheMatchInfo) WithMM(mm MMMatchInfo) *PrefixCacheMatchInfo {
 	return p
 }
 
-func (p *PrefixCacheMatchInfo) MatchBlocks() int     { return p.matchBlocks }
+func (p *PrefixCacheMatchInfo) MatchBlocks() float64 { return p.matchBlocks }
 func (p *PrefixCacheMatchInfo) TotalBlocks() int     { return p.totalBlocks }
 func (p *PrefixCacheMatchInfo) BlockSizeTokens() int { return p.blockSizeTokens }
 func (p *PrefixCacheMatchInfo) MM() *MMMatchInfo     { return p.mm }

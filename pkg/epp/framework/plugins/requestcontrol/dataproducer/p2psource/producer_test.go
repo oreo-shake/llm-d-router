@@ -45,7 +45,7 @@ func endpoint(p *Producer, name, address string, cachedBlocks int) scheduling.En
 		Port:    "8080",
 	}, nil, nil)
 	e.Put(p.prefixMatchDataKey,
-		attrprefix.NewPrefixCacheMatchInfo(cachedBlocks, 4, testBlockSize).WithCachedBlockCount(cachedBlocks))
+		attrprefix.NewPrefixCacheMatchInfo(float64(cachedBlocks), 4, testBlockSize).WithCachedBlockCount(cachedBlocks))
 	return e
 }
 
@@ -339,7 +339,7 @@ func endpointWithLoad(p *Producer, name, address string, cachedBlocks, waiting i
 		Port:    "8080",
 	}, &fwkdl.Metrics{WaitingQueueSize: waiting}, nil)
 	e.Put(p.prefixMatchDataKey,
-		attrprefix.NewPrefixCacheMatchInfo(cachedBlocks, 4, testBlockSize).WithCachedBlockCount(cachedBlocks))
+		attrprefix.NewPrefixCacheMatchInfo(float64(cachedBlocks), 4, testBlockSize).WithCachedBlockCount(cachedBlocks))
 	return e
 }
 
@@ -500,7 +500,7 @@ func tierEndpoint(p *Producer, name, address string, cachedBlocks int, byTier ma
 		Port:    "8080",
 	}, nil, nil)
 	e.Put(p.prefixMatchDataKey,
-		attrprefix.NewPrefixCacheMatchInfo(cachedBlocks, 4, testBlockSize).
+		attrprefix.NewPrefixCacheMatchInfo(float64(cachedBlocks), 4, testBlockSize).
 			WithCachedBlockCount(cachedBlocks).
 			WithCachedBlocksByTier(byTier))
 	return e

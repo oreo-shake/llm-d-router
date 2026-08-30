@@ -88,6 +88,9 @@ func NewKVCacheIndexer(ctx context.Context, config *Config, tokenProcessor kvblo
 
 	// override backend configs with the ones from the config, if the defaults are not used.
 	config.KVBlockScorerConfig.BackendConfigs = config.BackendConfigs
+	if config.KVBlockScorerConfig.BlockSizeTokens == 0 {
+		config.KVBlockScorerConfig.BlockSizeTokens = tokenProcessor.BlockSize()
+	}
 	scorer, err := NewKVBlockScorer(config.KVBlockScorerConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create KVBlockScorer: %w", err)

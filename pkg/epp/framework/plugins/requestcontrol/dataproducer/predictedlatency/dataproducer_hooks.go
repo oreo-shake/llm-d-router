@@ -47,7 +47,7 @@ func (pl *PredictedLatency) Produce(ctx context.Context, request *fwksched.Infer
 
 		if prefixCacheInfoRaw, ok := endpoint.Get(pl.prefixMatchDataKey); ok {
 			prefixCacheInfo := prefixCacheInfoRaw.(*attrprefix.PrefixCacheMatchInfo)
-			prefixCacheScore = float64(prefixCacheInfo.MatchBlocks()) / float64(prefixCacheInfo.TotalBlocks())
+			prefixCacheScore = prefixCacheInfo.MatchBlocks() / float64(prefixCacheInfo.TotalBlocks())
 			if !math.IsNaN(prefixCacheScore) {
 				logger.V(logutil.DEBUG).Info("Found prefix cache score in pod attribute", "pod", endpoint.GetMetadata().ID.Name, "score", prefixCacheScore)
 			} else {

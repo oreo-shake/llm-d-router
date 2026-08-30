@@ -25,19 +25,25 @@ import (
 
 func TestPrefixCacheMatchInfo_CachedBlockCountDefaultsToMatchBlocks(t *testing.T) {
 	info := NewPrefixCacheMatchInfo(5, 10, 16)
-	assert.Equal(t, 5, info.MatchBlocks())
+	assert.InDelta(t, 5, info.MatchBlocks(), 1e-9)
 	assert.Equal(t, 10, info.TotalBlocks())
 	assert.Equal(t, 16, info.BlockSizeTokens())
-	// Unset cachedBlockCount mirrors matchBlocks so existing producers and
-	// consumers keep their current behavior.
+	// Unset cachedBlockCount mirrors the integer part of matchBlocks so
+	// existing producers and consumers keep their current behavior.
 	assert.Equal(t, 5, info.CachedBlockCount())
+}
+
+func TestPrefixCacheMatchInfo_FractionalMatchBlocks(t *testing.T) {
+	info := NewPrefixCacheMatchInfo(0.8, 1, 16).WithCachedBlockCount(1)
+	assert.InDelta(t, 0.8, info.MatchBlocks(), 1e-9)
+	assert.Equal(t, 1, info.CachedBlockCount())
 }
 
 func TestPrefixCacheMatchInfo_WithCachedBlockCount(t *testing.T) {
 	info := NewPrefixCacheMatchInfo(192, 256, 16).WithCachedBlockCount(240)
 	// matchBlocks keeps the tier-weighted ranking value; cachedBlockCount holds
 	// the unweighted literal count.
-	assert.Equal(t, 192, info.MatchBlocks())
+	assert.InDelta(t, 192, info.MatchBlocks(), 1e-9)
 	assert.Equal(t, 240, info.CachedBlockCount())
 }
 
@@ -91,7 +97,7 @@ func TestPrefixCacheMatchInfo_MM(t *testing.T) {
 	tests := []struct {
 		name      string
 		info      *PrefixCacheMatchInfo
-		wantMatch int
+		wantMatch float64
 		wantTotal int
 		wantBlock int
 		wantMM    *MMMatchInfo
@@ -125,7 +131,7 @@ func TestPrefixCacheMatchInfo_MM(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.wantMatch, tt.info.MatchBlocks())
+			assert.InDelta(t, tt.wantMatch, tt.info.MatchBlocks(), 1e-9)
 			assert.Equal(t, tt.wantTotal, tt.info.TotalBlocks())
 			assert.Equal(t, tt.wantBlock, tt.info.BlockSizeTokens())
 			assert.Equal(t, tt.wantMM, tt.info.MM())

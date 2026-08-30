@@ -54,7 +54,7 @@ func makeTestEndpointBase() scheduling.Endpoint {
 func makeTestEndpoint(cachedTokens int) scheduling.Endpoint {
 	ep := makeTestEndpointBase()
 	ep.Put(attrprefix.PrefixCacheMatchInfoDataKey,
-		attrprefix.NewPrefixCacheMatchInfo(cachedTokens, testTotalTokens, testBlockSize))
+		attrprefix.NewPrefixCacheMatchInfo(float64(cachedTokens), testTotalTokens, testBlockSize))
 	return ep
 }
 
