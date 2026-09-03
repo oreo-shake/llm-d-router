@@ -95,6 +95,18 @@ var defaultEngineConfigs = []engineConfigParams{
 		KVUsageSpec:         "vllm:kv_cache_usage_perc",
 		LoRASpec:            "vllm:lora_requests_info",
 		CacheInfoSpec:       "vllm:cache_config_info",
+		// SimpleCPUOffload / OffloadingConnector transfer counters for
+		// ttft-cost-scorer live w_cpu (attribute keys match LiveConfig defaults).
+		CustomMetrics: []customMetricConfigParams{
+			{
+				AttributeKey: "kv_offload_load_bytes",
+				MetricSpec:   "vllm:kv_offload_load_bytes_total",
+			},
+			{
+				AttributeKey: "kv_offload_load_time",
+				MetricSpec:   "vllm:kv_offload_load_time_total",
+			},
+		},
 	},
 	{
 		Name:                    "sglang",
