@@ -41,6 +41,9 @@ type msgpackEventBatch struct {
 }
 
 // parseTopic extracts pod ID and model name from the topic format "kv@<pod-id>@<model-name>".
+// Topics that are not exactly three @-separated parts (including the common
+// filter-only form "kv@") return an empty model name; Pool.Config.DefaultModelName
+// covers that case for request-key hashing.
 //
 //nolint:gocritic // unnamedResult: named returns conflict with nonamedreturns linter
 func parseTopic(topic string) (string, string) {

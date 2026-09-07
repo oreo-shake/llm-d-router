@@ -12,6 +12,10 @@ recover the model and sharding key, decodes the payload, and returns canonical
 block-stored / block-removed / all-blocks-cleared events. It also exposes the
 sharding key so the pool can order events for the same block.
 
+Expected topic form is `kv@<pod-id>@<model-name>`. A filter-only topic such as
+`kv@` yields an empty model name; the pool can substitute
+`Config.DefaultModelName` for request-key hashing.
+
 ## Adapters
 
 | Engine | Constructor | Notes |

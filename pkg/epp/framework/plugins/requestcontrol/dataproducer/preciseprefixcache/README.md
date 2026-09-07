@@ -33,6 +33,7 @@ upstream. No-op otherwise.
 | `tokenProcessorConfig` | object | `kvblock.DefaultTokenProcessorConfig()` | KV-block hashing for the EPP-recomputed keys (block size, hash seed). |
 | `indexerConfig` | object | `kvcache.NewDefaultConfig()` | `kvcache.Indexer` config. |
 | `kvEventsConfig` | object | `kvevents.DefaultConfig()` | KV-events pool config. |
+| `kvEventsConfig.defaultModelName` | string | (empty) | Model name used when the engine ZMQ topic omits one (e.g. vLLM `topic: "kv@"`). Set to the same value as `token-producer` `modelName` so event indexing matches schedule-time lookup. A topic of the form `kv@<pod>@<model>` still wins. |
 | `speculativeIndexing` | bool | `false` | Seed predicted entries on routing decisions. |
 | `speculativeTTL` | duration | `2s` | TTL for speculative entries. |
 
@@ -49,6 +50,11 @@ multimodal features, cache salt) on both the lookup path and the KV-event
 ingestion path, using this plugin's `tokenProcessorConfig`. The engine's own
 block hashes serve only as opaque keys for the engine-to-request mapping, so
 `blockSize`/`hashSeed` need not match the engine.
+
+The model name on the event path comes from the ZMQ topic
+(`kv@<pod-id>@<model-name>`). When the topic omits the model (common with
+vLLM `topic: "kv@"`), set `kvEventsConfig.defaultModelName` to the serving
+model name so hashed keys match `request.TargetModel` on lookup.
 
 The cross-engine requirement is that the engine emits, in its KV-events, the
 hash-affecting inputs the EPP hashes: `token_ids`, and `extra_keys` carrying

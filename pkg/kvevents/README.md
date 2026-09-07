@@ -38,7 +38,7 @@ engines.
 |--------|------|
 | `Pool` | Entry point; constructed with `NewPool(config)`. Subscribes, decodes, and applies events. |
 | `SubscriberManager` | Manages per-endpoint ZMQ subscriptions across pod churn. |
-| `Config` / `DefaultConfig` | Worker count, subscription, and dedup configuration. |
+| `Config` / `DefaultConfig` | Worker count, subscription, optional `defaultModelName` for topics that omit a model, and dedup configuration. |
 
 ## Related Documentation
 

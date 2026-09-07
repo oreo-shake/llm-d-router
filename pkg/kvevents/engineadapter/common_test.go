@@ -45,6 +45,15 @@ func TestParseTopic_Plain(t *testing.T) {
 	assert.Equal(t, "", modelName)
 }
 
+// TestParseTopic_FilterOnly documents that a bare filter prefix such as
+// vLLM's default topic "kv@" yields an empty model name; callers must supply
+// Config.DefaultModelName for request-key hashing to match schedule-time lookup.
+func TestParseTopic_FilterOnly(t *testing.T) {
+	podID, modelName := parseTopic("kv@")
+	assert.Equal(t, "kv@", podID)
+	assert.Equal(t, "", modelName)
+}
+
 // TestGetHashAsUint64 tests hash format conversions.
 func TestGetHashAsUint64(t *testing.T) {
 	t.Run("uint64", func(t *testing.T) {

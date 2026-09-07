@@ -144,6 +144,103 @@ func TestProcessRawMessage_FallsBackToTopicEndpoint(t *testing.T) {
 	assert.Equal(t, "10.0.0.1:8000", result[keys[0]][0].PodIdentifier)
 }
 
+// topicModelAdapter returns the model name from the topic via parse-compatible
+// splitting so empty-topic cases exercise the pool fallback path.
+type topicModelAdapter struct {
+	modelFromTopic string
+}
+
+func (a *topicModelAdapter) ParseMessage(msg *RawMessage) (string, string, EventBatch, error) {
+	return "ignored-pod", a.modelFromTopic, EventBatch{
+		Events: []GenericEvent{
+			&BlockStoredEvent{
+				BlockHashes: []uint64{uint64(msg.Payload[0])},
+				Tokens:      makeTokens(16),
+			},
+		},
+	}, nil
+}
+
+func (a *topicModelAdapter) ShardingKey(*RawMessage) string { return "ignored-pod" }
+
+// TestProcessRawMessage_DefaultModelNameWhenTopicOmitsModel verifies that when
+// the engine topic carries no model name (e.g. vLLM topic "kv@"), the pool
+// hashes admitted blocks with Config.DefaultModelName so schedule-time lookup
+// using the same model name hits.
+func TestProcessRawMessage_DefaultModelNameWhenTopicOmitsModel(t *testing.T) {
+	ctx := logging.NewTestLoggerIntoContext(context.Background())
+
+	idx, err := kvblock.NewInMemoryIndex(kvblock.DefaultInMemoryIndexConfig())
+	require.NoError(t, err)
+	tp, err := kvblock.NewChunkedTokenDatabase(&kvblock.TokenProcessorConfig{
+		BlockSizeTokens: 16,
+		HashSeed:        "test",
+	})
+	require.NoError(t, err)
+
+	const model = "himanshu-llmd-test"
+	cfg := DefaultConfig()
+	cfg.DefaultModelName = model
+	pool := NewPool(cfg, idx, tp, &topicModelAdapter{modelFromTopic: ""})
+
+	pool.processRawMessage(ctx, &RawMessage{
+		Topic:          "kv@",
+		Payload:        []byte{1},
+		SourceEndpoint: "10.0.0.1:5557",
+	})
+
+	keys, err := tp.TokensToKVBlockKeys(kvblock.EmptyBlockHash, makeTokens(16), model, nil)
+	require.NoError(t, err)
+	require.Len(t, keys, 1)
+
+	result, err := idx.Lookup(ctx, keys, nil)
+	require.NoError(t, err)
+	require.Len(t, result[keys[0]], 1, "lookup with DefaultModelName must hit blocks indexed from a model-less topic")
+	assert.Equal(t, "10.0.0.1:5557", result[keys[0]][0].PodIdentifier)
+
+	emptyKeys, err := tp.TokensToKVBlockKeys(kvblock.EmptyBlockHash, makeTokens(16), "", nil)
+	require.NoError(t, err)
+	emptyResult, err := idx.Lookup(ctx, emptyKeys, nil)
+	require.NoError(t, err)
+	assert.Empty(t, emptyResult[emptyKeys[0]], "empty-model lookup keys must not hit DefaultModelName-indexed blocks")
+}
+
+// TestProcessRawMessage_TopicModelOverridesDefault verifies a topic-carried
+// model name wins over Config.DefaultModelName.
+func TestProcessRawMessage_TopicModelOverridesDefault(t *testing.T) {
+	ctx := logging.NewTestLoggerIntoContext(context.Background())
+
+	idx, err := kvblock.NewInMemoryIndex(kvblock.DefaultInMemoryIndexConfig())
+	require.NoError(t, err)
+	tp, err := kvblock.NewChunkedTokenDatabase(&kvblock.TokenProcessorConfig{
+		BlockSizeTokens: 16,
+		HashSeed:        "test",
+	})
+	require.NoError(t, err)
+
+	cfg := DefaultConfig()
+	cfg.DefaultModelName = "fallback-model"
+	pool := NewPool(cfg, idx, tp, &topicModelAdapter{modelFromTopic: "topic-model"})
+
+	pool.processRawMessage(ctx, &RawMessage{
+		Topic:          "kv@pod@topic-model",
+		Payload:        []byte{1},
+		SourceEndpoint: "10.0.0.1:5557",
+	})
+
+	topicKeys, err := tp.TokensToKVBlockKeys(kvblock.EmptyBlockHash, makeTokens(16), "topic-model", nil)
+	require.NoError(t, err)
+	result, err := idx.Lookup(ctx, topicKeys, nil)
+	require.NoError(t, err)
+	require.Len(t, result[topicKeys[0]], 1)
+
+	fallbackKeys, err := tp.TokensToKVBlockKeys(kvblock.EmptyBlockHash, makeTokens(16), "fallback-model", nil)
+	require.NoError(t, err)
+	fallbackResult, err := idx.Lookup(ctx, fallbackKeys, nil)
+	require.NoError(t, err)
+	assert.Empty(t, fallbackResult[fallbackKeys[0]])
+}
+
 // TestCanonicalWritePath_FallbackLegacy verifies that when BlockSize equals
 // the engine block size, the pool takes the 1:1 path: engine keys are passed
 // directly to Index.Add with 1:1 mapping.

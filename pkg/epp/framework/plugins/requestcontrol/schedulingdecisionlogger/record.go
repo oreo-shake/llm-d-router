@@ -1,0 +1,60 @@
+/*
+Copyright 2026 The llm-d Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package schedulingdecisionlogger
+
+import "time"
+
+// CandidateFeatures is the per-endpoint prefix-match snapshot used for
+// ranking comparison across experiments.
+type CandidateFeatures struct {
+	Endpoint    string  `json:"endpoint"`
+	N           int     `json:"n"`
+	M           int     `json:"m"`
+	MGPU        int     `json:"m_gpu"`
+	MCPU        int     `json:"m_cpu"`
+	MatchBlocks float64 `json:"match_blocks"`
+}
+
+// CounterfactualPick is one policy's argmax/argmin over the same candidate set.
+type CounterfactualPick struct {
+	Endpoint string  `json:"endpoint"`
+	Score    float64 `json:"score,omitempty"`
+	Cost     float64 `json:"cost,omitempty"`
+}
+
+// Counterfactuals holds same-tick alternative picks. Fields are omitted when
+// the corresponding policy could not be evaluated (missing features / weights).
+type Counterfactuals struct {
+	MxW *CounterfactualPick `json:"mxw,omitempty"`
+	IIB *CounterfactualPick `json:"iib,omitempty"`
+}
+
+// DecisionRecord is one schedule decision. Schema is stable across experiments
+// so JSONL files can be compared without request-id joins.
+type DecisionRecord struct {
+	Experiment     string              `json:"experiment"`
+	TS             time.Time           `json:"ts"`
+	RequestID      string              `json:"request_id,omitempty"`
+	Profile        string              `json:"profile"`
+	Chosen         string              `json:"chosen"`
+	ScorerScores   map[string]float64  `json:"scorer_scores,omitempty"`
+	Candidates     []CandidateFeatures `json:"candidates"`
+	Counterfactual Counterfactuals     `json:"counterfactual"`
+	AgreeMxW       *bool               `json:"agree_mxw,omitempty"`
+	AgreeIIB       *bool               `json:"agree_iib,omitempty"`
+	GateCase       bool                `json:"gate_case"`
+}

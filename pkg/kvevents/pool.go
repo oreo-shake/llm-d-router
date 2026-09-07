@@ -87,6 +87,11 @@ type Config struct {
 	ZMQEndpoint string `json:"zmqEndpoint,omitempty"`
 	// TopicFilter is the ZMQ subscription filter (e.g., "kv@").
 	TopicFilter string `json:"topicFilter"`
+	// DefaultModelName is used for request-key hashing when the engine topic
+	// omits a model name (for example vLLM topic "kv@"). Set it to the same
+	// value as token-producer modelName / request TargetModel so event
+	// indexing matches schedule-time lookup. A topic-carried model name wins.
+	DefaultModelName string `json:"defaultModelName,omitempty"`
 	// Concurrency is the number of parallel workers to run.
 	Concurrency int `json:"concurrency"`
 	// EngineType selects the inference engine adapter ("vllm" or "sglang").
@@ -150,12 +155,13 @@ func DefaultConfig() *Config {
 // Pool keeps transient event-stream state while durable key mappings are
 // delegated to the Index.
 type Pool struct {
-	queues         []workqueue.TypedRateLimitingInterface[*RawMessage]
-	concurrency    int // can replace use with len(queues)
-	index          kvblock.Index
-	tokenProcessor kvblock.TokenProcessor
-	adapter        EngineAdapter
-	groupCatalog   *kvblock.GroupCatalog
+	queues           []workqueue.TypedRateLimitingInterface[*RawMessage]
+	concurrency      int // can replace use with len(queues)
+	index            kvblock.Index
+	tokenProcessor   kvblock.TokenProcessor
+	adapter          EngineAdapter
+	defaultModelName string
+	groupCatalog     *kvblock.GroupCatalog
 	// dedup lives in the Pool, not as an Index decorator, because its scope is
 	// built from event fields absent from the Index.Evict signature (device
 	// tier, KV-cache group, DP rank) and a store must be counted only after
@@ -183,13 +189,14 @@ func NewPool(cfg *Config, index kvblock.Index, tokenProcessor kvblock.TokenProce
 	}
 
 	p := &Pool{
-		queues:         make([]workqueue.TypedRateLimitingInterface[*RawMessage], cfg.Concurrency),
-		concurrency:    cfg.Concurrency,
-		index:          index,
-		tokenProcessor: tokenProcessor,
-		adapter:        adapter,
-		groupCatalog:   kvblock.NewGroupCatalog(),
-		dedup:          newEventDedupFilter(),
+		queues:           make([]workqueue.TypedRateLimitingInterface[*RawMessage], cfg.Concurrency),
+		concurrency:      cfg.Concurrency,
+		index:            index,
+		tokenProcessor:   tokenProcessor,
+		adapter:          adapter,
+		defaultModelName: cfg.DefaultModelName,
+		groupCatalog:     kvblock.NewGroupCatalog(),
+		dedup:            newEventDedupFilter(),
 	}
 
 	for i := 0; i < p.concurrency; i++ {
@@ -320,6 +327,12 @@ func (p *Pool) processRawMessage(ctx context.Context, msg *RawMessage) {
 	}
 	if msg.SourceEndpoint != "" {
 		podID = msg.SourceEndpoint
+	}
+	if modelName == "" && p.defaultModelName != "" {
+		modelName = p.defaultModelName
+		logger.V(logging.DEBUG).Info("Using defaultModelName; topic omitted model",
+			"defaultModelName", modelName,
+			"topic", msg.Topic)
 	}
 
 	p.processEventBatch(ctx, &batch, podID, modelName)

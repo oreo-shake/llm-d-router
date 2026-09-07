@@ -51,6 +51,8 @@ func NewVLLMAdapter() *VLLMAdapter {
 
 // ShardingKey extracts the pod-id segment from a vLLM raw message topic.
 // Expected topic format: "kv@<pod-id>@<model-name>".
+// A topic without three @-separated parts yields an empty model name; the
+// pool may substitute Config.DefaultModelName.
 func (v *VLLMAdapter) ShardingKey(msg *kvevents.RawMessage) string {
 	podID, _ := parseTopic(msg.Topic)
 	return podID

@@ -77,3 +77,7 @@ Paste the printed `weights:` block into `mode: offline` config.
 
 Unit test: at `N=98304` tokens (`block_size=16`), a full CPU hit must score
 above a 96000-token GPU hit (unmatched tail).
+
+For live A/B disagreement rates vs `prefix-cache-scorer` (m×w), enable
+`scheduling-decision-logger` (see its README) rather than instrumenting this
+scorer.
