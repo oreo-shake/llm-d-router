@@ -50,9 +50,13 @@ func testIIBWeights() ttftcost.Weights {
 }
 
 func endpointWith(name string, matchBlocks float64, total, cached int, tiers map[string]int) fwksched.Endpoint {
+	return endpointWithMetrics(name, matchBlocks, total, cached, tiers, nil)
+}
+
+func endpointWithMetrics(name string, matchBlocks float64, total, cached int, tiers map[string]int, metrics *fwkdl.Metrics) fwksched.Endpoint {
 	ep := fwksched.NewEndpoint(&fwkdl.EndpointMetadata{
 		ID: k8stypes.NamespacedName{Name: name},
-	}, nil, nil)
+	}, metrics, nil)
 	key := attrprefix.PrefixCacheMatchInfoDataKey.WithNonEmptyProducerName(producer)
 	info := attrprefix.NewPrefixCacheMatchInfo(matchBlocks, total, 16).WithCachedBlockCount(cached)
 	if tiers != nil {
@@ -234,6 +238,112 @@ func TestPickMxWTieBreak(t *testing.T) {
 	pick := pickMxW(cands)
 	require.NotNil(t, pick)
 	assert.Equal(t, "a", pick.Endpoint)
+}
+
+func TestCounterfactualProfilesConfigValidation(t *testing.T) {
+	_, err := New("logger", Config{
+		Experiment:                  "e",
+		PrefixMatchInfoProducerName: producer,
+		CounterfactualProfiles: []CounterfactualProfileConfig{
+			{Name: "ttft-only", Scorers: []ScorerRef{{Type: componentTTFT}}},
+		},
+	}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "iibWeights")
+
+	_, err = New("logger", Config{
+		Experiment:                  "e",
+		PrefixMatchInfoProducerName: producer,
+		IIBWeights:                  ptrWeights(testIIBWeights()),
+		CounterfactualProfiles: []CounterfactualProfileConfig{
+			{Name: "bad", Scorers: []ScorerRef{{Type: "nope"}}},
+		},
+	}, nil)
+	require.Error(t, err)
+
+	_, err = New("logger", Config{
+		Experiment:                  "e",
+		PrefixMatchInfoProducerName: producer,
+		CounterfactualProfiles: []CounterfactualProfileConfig{
+			{Name: "a", Scorers: []ScorerRef{{Type: componentPrefix}}},
+			{Name: "a", Scorers: []ScorerRef{{Type: componentQueue}}},
+		},
+	}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "duplicate")
+}
+
+func TestCounterfactualProfilesPrefixVsTTFTWithQueueKV(t *testing.T) {
+	// Same geometry as the gate case: m×w/prefix prefers GPU; IIB/ttft prefers CPU.
+	// Equal queue+kv so the combo disagreement is driven by the cache component.
+	const n, mGPU = 6144, 6000
+	gpu := endpointWithMetrics("gpu-pod", float64(mGPU), n, mGPU, map[string]int{"gpu": mGPU},
+		&fwkdl.Metrics{WaitingQueueSize: 1, KVCacheUsagePercent: 0.4})
+	cpu := endpointWithMetrics("cpu-pod", float64(n)*0.5, n, n, map[string]int{"cpu": n},
+		&fwkdl.Metrics{WaitingQueueSize: 1, KVCacheUsagePercent: 0.4})
+
+	p := newTestPlugin(t, Config{
+		IIBWeights: ptrWeights(testIIBWeights()),
+		CounterfactualProfiles: []CounterfactualProfileConfig{
+			{
+				Name: "prefix-q-kv",
+				Scorers: []ScorerRef{
+					{Type: componentPrefix},
+					{Type: componentQueue},
+					{Type: componentKVUtil},
+				},
+			},
+			{
+				Name: "ttft-q-kv",
+				Scorers: []ScorerRef{
+					{Type: componentTTFT},
+					{Type: componentQueue},
+					{Type: componentKVUtil},
+				},
+			},
+		},
+	})
+	res := schedulingResult(gpu, gpu, cpu)
+	rec, err := p.buildRecord(&fwksched.InferenceRequest{RequestID: "cf"}, res)
+	require.NoError(t, err)
+
+	require.Contains(t, rec.Counterfactual.Profiles, "prefix-q-kv")
+	require.Contains(t, rec.Counterfactual.Profiles, "ttft-q-kv")
+	assert.Equal(t, gpu.GetMetadata().ID.String(), rec.Counterfactual.Profiles["prefix-q-kv"].Endpoint)
+	assert.Equal(t, cpu.GetMetadata().ID.String(), rec.Counterfactual.Profiles["ttft-q-kv"].Endpoint)
+	assert.True(t, rec.ProfilesDisagree)
+	require.NotNil(t, rec.AgreeProfiles["prefix-q-kv"])
+	assert.True(t, *rec.AgreeProfiles["prefix-q-kv"])
+	require.NotNil(t, rec.AgreeProfiles["ttft-q-kv"])
+	assert.False(t, *rec.AgreeProfiles["ttft-q-kv"])
+	assert.True(t, disagreesWithAny(rec.Chosen, rec.Counterfactual))
+
+	require.Equal(t, 1, rec.Candidates[0].WaitingQueueSize)
+	require.InDelta(t, 0.4, rec.Candidates[0].KVCacheUsagePercent, 1e-9)
+}
+
+func TestQueueComponentCanFlipPrefixRanking(t *testing.T) {
+	// Prefix alone prefers a; heavy queue on a flips prefix+queue to b.
+	a := endpointWithMetrics("a", 10, 10, 10, map[string]int{"gpu": 10},
+		&fwkdl.Metrics{WaitingQueueSize: 20, KVCacheUsagePercent: 0.5})
+	b := endpointWithMetrics("b", 8, 10, 8, map[string]int{"gpu": 8},
+		&fwkdl.Metrics{WaitingQueueSize: 0, KVCacheUsagePercent: 0.5})
+
+	p := newTestPlugin(t, Config{
+		CounterfactualProfiles: []CounterfactualProfileConfig{
+			{Name: "prefix-only", Scorers: []ScorerRef{{Type: componentPrefix}}},
+			{Name: "prefix-q", Scorers: []ScorerRef{
+				{Type: componentPrefix, Weight: 1},
+				{Type: componentQueue, Weight: 1},
+			}},
+		},
+	})
+	res := schedulingResult(a, a, b)
+	rec, err := p.buildRecord(&fwksched.InferenceRequest{RequestID: "q"}, res)
+	require.NoError(t, err)
+	assert.Equal(t, a.GetMetadata().ID.String(), rec.Counterfactual.Profiles["prefix-only"].Endpoint)
+	assert.Equal(t, b.GetMetadata().ID.String(), rec.Counterfactual.Profiles["prefix-q"].Endpoint)
+	assert.True(t, rec.ProfilesDisagree)
 }
 
 func ptrWeights(w ttftcost.Weights) *ttftcost.Weights { return &w }

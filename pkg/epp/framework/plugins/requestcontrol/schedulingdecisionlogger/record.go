@@ -18,15 +18,17 @@ package schedulingdecisionlogger
 
 import "time"
 
-// CandidateFeatures is the per-endpoint prefix-match snapshot used for
-// ranking comparison across experiments.
+// CandidateFeatures is the per-endpoint snapshot used for ranking comparison
+// across experiments (prefix match plus optional live queue/KV metrics).
 type CandidateFeatures struct {
-	Endpoint    string  `json:"endpoint"`
-	N           int     `json:"n"`
-	M           int     `json:"m"`
-	MGPU        int     `json:"m_gpu"`
-	MCPU        int     `json:"m_cpu"`
-	MatchBlocks float64 `json:"match_blocks"`
+	Endpoint            string  `json:"endpoint"`
+	N                   int     `json:"n"`
+	M                   int     `json:"m"`
+	MGPU                int     `json:"m_gpu"`
+	MCPU                int     `json:"m_cpu"`
+	MatchBlocks         float64 `json:"match_blocks"`
+	WaitingQueueSize    int     `json:"waiting_queue_size,omitempty"`
+	KVCacheUsagePercent float64 `json:"kv_cache_usage_percent,omitempty"`
 }
 
 // CounterfactualPick is one policy's argmax/argmin over the same candidate set.
@@ -41,6 +43,8 @@ type CounterfactualPick struct {
 type Counterfactuals struct {
 	MxW *CounterfactualPick `json:"mxw,omitempty"`
 	IIB *CounterfactualPick `json:"iib,omitempty"`
+	// Profiles maps counterfactualProfiles[].name to that profile's pick.
+	Profiles map[string]*CounterfactualPick `json:"profiles,omitempty"`
 }
 
 // DecisionRecord is one schedule decision. Schema is stable across experiments
@@ -56,5 +60,9 @@ type DecisionRecord struct {
 	Counterfactual Counterfactuals     `json:"counterfactual"`
 	AgreeMxW       *bool               `json:"agree_mxw,omitempty"`
 	AgreeIIB       *bool               `json:"agree_iib,omitempty"`
-	GateCase       bool                `json:"gate_case"`
+	// AgreeProfiles maps profile name -> whether chosen matches that pick.
+	AgreeProfiles map[string]*bool `json:"agree_profiles,omitempty"`
+	// ProfilesDisagree is true when any two configured CF profiles pick different pods.
+	ProfilesDisagree bool `json:"profiles_disagree,omitempty"`
+	GateCase         bool `json:"gate_case"`
 }

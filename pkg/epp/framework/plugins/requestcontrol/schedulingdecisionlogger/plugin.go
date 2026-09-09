@@ -16,7 +16,7 @@ limitations under the License.
 
 // Package schedulingdecisionlogger records per-request scheduling decisions
 // for cross-experiment comparison (chosen pod, candidate features, and
-// same-tick m×w / Method IIB counterfactuals).
+// same-tick m×w / Method IIB / configurable multi-scorer counterfactuals).
 package schedulingdecisionlogger
 
 import (
@@ -53,8 +53,13 @@ type Config struct {
 	PrefixMatchInfoProducerName string `json:"prefixMatchInfoProducerName"`
 	// OutputPath appends JSONL decision records. Empty emits structured logs only.
 	OutputPath string `json:"outputPath,omitempty"`
-	// IIBWeights enables counterfactual.iib via Method IIB Cost. Omit to skip.
+	// IIBWeights enables counterfactual.iib and any profile component type
+	// "ttft" via Method IIB Cost. Omit to skip those.
 	IIBWeights *ttftcost.Weights `json:"iibWeights,omitempty"`
+	// CounterfactualProfiles are named same-tick weighted sums of component
+	// scorers (prefix|ttft|queue|kv-util). Use to compare combos such as
+	// prefix+queue+kv vs ttft+queue+kv without changing live routing.
+	CounterfactualProfiles []CounterfactualProfileConfig `json:"counterfactualProfiles,omitempty"`
 	// SampleRate is the probability of emitting an agree record when LogAgrees
 	// is true. Disagreements are always emitted. Default 1.0.
 	SampleRate float64 `json:"sampleRate,omitempty"`
@@ -71,6 +76,7 @@ type Plugin struct {
 	sampleRate         float64
 	logAgrees          bool
 	iibWeights         *ttftcost.Weights
+	profiles           []compiledProfile
 	writer             *jsonlWriter
 }
 
@@ -108,6 +114,10 @@ func New(name string, cfg Config, handle plugin.Handle) (*Plugin, error) {
 			return nil, fmt.Errorf("%s: iibWeights must be >= 0", PluginType)
 		}
 	}
+	profiles, err := compileProfiles(cfg.CounterfactualProfiles, cfg.IIBWeights)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", PluginType, err)
+	}
 	if handle != nil {
 		if err := registerMetrics(handle.Metrics()); err != nil {
 			return nil, err
@@ -123,6 +133,7 @@ func New(name string, cfg Config, handle plugin.Handle) (*Plugin, error) {
 		sampleRate: sampleRate,
 		logAgrees:  cfg.LogAgrees,
 		iibWeights: cfg.IIBWeights,
+		profiles:   profiles,
 	}
 	if cfg.OutputPath != "" {
 		w, err := openJSONL(cfg.OutputPath)
@@ -225,14 +236,19 @@ func (p *Plugin) buildRecord(request *fwksched.InferenceRequest, schedulingResul
 			m = n
 		}
 		mGPU, mCPU := ttftcost.Attribution(m, info.CachedBlocksByTier())
-		cands = append(cands, CandidateFeatures{
+		cand := CandidateFeatures{
 			Endpoint:    id,
 			N:           n,
 			M:           m,
 			MGPU:        mGPU,
 			MCPU:        mCPU,
 			MatchBlocks: info.MatchBlocks(),
-		})
+		}
+		if metrics := ep.GetMetrics(); metrics != nil {
+			cand.WaitingQueueSize = metrics.WaitingQueueSize
+			cand.KVCacheUsagePercent = metrics.KVCacheUsagePercent
+		}
+		cands = append(cands, cand)
 	}
 	if len(cands) == 0 {
 		return nil, fmt.Errorf("no candidates with PrefixCacheMatchInfo (missing=%d)", missingInfo)
@@ -242,23 +258,35 @@ func (p *Plugin) buildRecord(request *fwksched.InferenceRequest, schedulingResul
 	if p.iibWeights != nil {
 		cf.IIB = pickIIB(cands, *p.iibWeights)
 	}
+	var agreeProfiles map[string]*bool
+	if len(p.profiles) > 0 {
+		cf.Profiles = make(map[string]*CounterfactualPick, len(p.profiles))
+		agreeProfiles = make(map[string]*bool, len(p.profiles))
+		for _, prof := range p.profiles {
+			pick := pickProfile(cands, prof, p.iibWeights)
+			cf.Profiles[prof.name] = pick
+			agreeProfiles[prof.name] = agree(chosen, pick)
+		}
+	}
 
 	reqID := ""
 	if request != nil {
 		reqID = request.RequestID
 	}
 	return &DecisionRecord{
-		Experiment:     p.experiment,
-		TS:             time.Now().UTC(),
-		RequestID:      reqID,
-		Profile:        profile,
-		Chosen:         chosen,
-		ScorerScores:   scores,
-		Candidates:     cands,
-		Counterfactual: cf,
-		AgreeMxW:       agree(chosen, cf.MxW),
-		AgreeIIB:       agree(chosen, cf.IIB),
-		GateCase:       isGateCase(cands, cf.MxW, cf.IIB),
+		Experiment:       p.experiment,
+		TS:               time.Now().UTC(),
+		RequestID:        reqID,
+		Profile:          profile,
+		Chosen:           chosen,
+		ScorerScores:     scores,
+		Candidates:       cands,
+		Counterfactual:   cf,
+		AgreeMxW:         agree(chosen, cf.MxW),
+		AgreeIIB:         agree(chosen, cf.IIB),
+		AgreeProfiles:    agreeProfiles,
+		ProfilesDisagree: profilesDisagree(cf.Profiles),
+		GateCase:         isGateCase(cands, cf.MxW, cf.IIB),
 	}, nil
 }
 

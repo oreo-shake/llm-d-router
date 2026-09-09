@@ -89,10 +89,11 @@ type Config struct {
 	Weights Weights `json:"weights"`
 	// Live configures live coefficient updates. Ignored when Mode is offline.
 	Live LiveConfig `json:"live,omitempty"`
-	// Normalize maps -cost into approximately [0,1] via
-	// 1 - cost/cost_cold(N). Ranking is unchanged. Default false so the
-	// score matches the Method IIB cost form for prefix-only A/B.
-	Normalize bool `json:"normalize,omitempty"`
+	// Normalize maps cost into [0,1] via 1 - cost/cost_cold(N). Ranking
+	// matches argmin cost. Default true: the scheduler clamps scores to
+	// [0,1], so raw -cost collapses to zero for every pod. Set false only
+	// for offline inspection of -cost (not for live scheduling).
+	Normalize *bool `json:"normalize,omitempty"`
 }
 
 // Plugin implements fwksched.Scorer for Method IIB TTFT cost.
@@ -133,6 +134,13 @@ func Factory(name string, decoder *json.Decoder, handle plugin.Handle) (plugin.P
 	return New(handle.Context(), name, cfg)
 }
 
+func normalizeEnabled(cfg Config) bool {
+	if cfg.Normalize == nil {
+		return true
+	}
+	return *cfg.Normalize
+}
+
 // New builds a Plugin. Used by Factory and tests.
 func New(_ context.Context, name string, cfg Config) (*Plugin, error) {
 	if cfg.PrefixMatchInfoProducerName == "" {
@@ -170,7 +178,7 @@ func New(_ context.Context, name string, cfg Config) (*Plugin, error) {
 		prefixMatchDataKey: attrprefix.PrefixCacheMatchInfoDataKey.WithNonEmptyProducerName(
 			cfg.PrefixMatchInfoProducerName,
 		),
-		normalize:    cfg.Normalize,
+		normalize:    normalizeEnabled(cfg),
 		mode:         mode,
 		live:         live,
 		loadBytesKey: loadBytesKey,
@@ -278,7 +286,8 @@ func Attribution(m int, tiers map[string]int) (mGPU, mCPU int) {
 	return mGPU, mCPU
 }
 
-// Score returns -cost (or a normalized benefit) per endpoint.
+// Score returns a [0,1] benefit (1 - cost/cost_cold), or -cost when
+// normalize is disabled.
 func (p *Plugin) Score(ctx context.Context, _ *fwksched.InferenceRequest, endpoints []fwksched.Endpoint) map[fwksched.Endpoint]float64 {
 	p.refreshLiveFromEndpoints(endpoints)
 

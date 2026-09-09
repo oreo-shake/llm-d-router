@@ -97,5 +97,10 @@ func disagreesWithAny(chosen string, cf Counterfactuals) bool {
 	if cf.IIB != nil && cf.IIB.Endpoint != chosen {
 		return true
 	}
+	for _, p := range cf.Profiles {
+		if p != nil && p.Endpoint != chosen {
+			return true
+		}
+	}
 	return false
 }

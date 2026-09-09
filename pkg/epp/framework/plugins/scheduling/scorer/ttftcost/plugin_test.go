@@ -181,11 +181,12 @@ func TestFactoryDefaultsToLive(t *testing.T) {
 
 func TestNormalizePreservesRanking(t *testing.T) {
 	producer := "precise"
+	normalize := true
 	cfg := Config{
 		PrefixMatchInfoProducerName: producer,
 		Mode:                        modeOffline,
 		Weights:                     testWeights(),
-		Normalize:                   true,
+		Normalize:                   &normalize,
 	}
 	p, err := New(context.Background(), "ttft", cfg)
 	require.NoError(t, err)
@@ -197,4 +198,36 @@ func TestNormalizePreservesRanking(t *testing.T) {
 	assert.Greater(t, scores[fullGPU], scores[cold])
 	assert.InDelta(t, 1.0, scores[fullGPU], 1e-9)
 	assert.InDelta(t, 0.0, scores[cold], 1e-9)
+}
+
+func TestNormalizeDefaultsTrue(t *testing.T) {
+	p, err := New(context.Background(), "ttft", Config{
+		PrefixMatchInfoProducerName: "p",
+		Mode:                        modeOffline,
+		Weights:                     testWeights(),
+	})
+	require.NoError(t, err)
+
+	n := 100
+	cold := endpointWithMatch("cold", "p", 0, n, 16, 0, map[string]int{})
+	fullGPU := endpointWithMatch("gpu", "p", float64(n), n, 16, n, map[string]int{"gpu": n})
+	scores := p.Score(context.Background(), nil, []fwksched.Endpoint{cold, fullGPU})
+	assert.InDelta(t, 1.0, scores[fullGPU], 1e-9)
+	assert.InDelta(t, 0.0, scores[cold], 1e-9)
+}
+
+func TestNormalizeFalseReturnsNegCost(t *testing.T) {
+	normalize := false
+	p, err := New(context.Background(), "ttft", Config{
+		PrefixMatchInfoProducerName: "p",
+		Mode:                        modeOffline,
+		Weights:                     testWeights(),
+		Normalize:                   &normalize,
+	})
+	require.NoError(t, err)
+
+	n := 100
+	cold := endpointWithMatch("cold", "p", 0, n, 16, 0, map[string]int{})
+	scores := p.Score(context.Background(), nil, []fwksched.Endpoint{cold})
+	assert.Less(t, scores[cold], 0.0)
 }

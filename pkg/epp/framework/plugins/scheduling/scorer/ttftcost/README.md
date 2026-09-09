@@ -10,8 +10,9 @@ alone in the scheduling profile (prefix-only).
 ## Formula
 
 ```text
-cost  = w_gpu * m_gpu + w_cpu * m_cpu + w1 * (N - m) + w2 * (N^2 - m^2)
-score = -cost
+cost       = w_gpu * m_gpu + w_cpu * m_cpu + w1 * (N - m) + w2 * (N^2 - m^2)
+cost_cold  = w1 * N + w2 * N^2
+score      = 1 - cost / cost_cold(N)     # default; ranking = argmin cost
 ```
 
 - `N` = total prompt blocks (`TotalBlocks`)
@@ -20,8 +21,9 @@ score = -cost
   appears on both tiers)
 - `w_gpu` is typically `0`
 
-Optional `normalize: true` maps the score to `1 - cost/cost_cold(N)` in
-`[0,1]` without changing ranking.
+`normalize` defaults to true because scorers must emit `[0,1]` (the scheduler
+clamps outside that range). `normalize: false` returns `-cost` and is only for
+offline inspection; live scheduling with false collapses every score to 0.
 
 ## Modes
 
@@ -41,7 +43,7 @@ plugins:
     parameters:
       prefixMatchInfoProducerName: precise-prefix-cache-producer
       mode: live          # or offline
-      normalize: false
+      # normalize: true   # default; required for live max-score-picker
       weights:
         gpu: 0
         cpu: 0.0001
