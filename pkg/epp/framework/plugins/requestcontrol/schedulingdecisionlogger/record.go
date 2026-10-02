@@ -29,6 +29,14 @@ type CandidateFeatures struct {
 	MatchBlocks         float64 `json:"match_blocks"`
 	WaitingQueueSize    int     `json:"waiting_queue_size,omitempty"`
 	KVCacheUsagePercent float64 `json:"kv_cache_usage_percent,omitempty"`
+	// SLA-aware routing fields (populated when latency / SLARisk attributes exist).
+	PredictedTTFTMs *float64 `json:"predicted_ttft_ms,omitempty"`
+	PredictedTPOTMs *float64 `json:"predicted_tpot_ms,omitempty"`
+	TTFTSurvival    *float64 `json:"ttft_survival,omitempty"`
+	TPOTSurvival    *float64 `json:"tpot_survival,omitempty"`
+	SLAFeasible     *bool    `json:"sla_feasible,omitempty"`
+	SLAFutureCost   *float64 `json:"sla_future_cost,omitempty"`
+	SLARiskSource   string   `json:"sla_risk_source,omitempty"`
 }
 
 // CounterfactualPick is one policy's argmax/argmin over the same candidate set.

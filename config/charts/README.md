@@ -478,6 +478,29 @@ router:
 
 ---
 
+### 6b. Placement-Eval Sidecar (`router.placementEval.*`)
+
+Optional BLIS sidecar that evaluates simulated future SLA violation cost \(V_H\)
+for `sla-distribution-producer` / `sla-cost-scorer`. Disabled by default.
+See [SLA-aware routing](../../docs/sla-aware-routing.md).
+
+| **Parameter Name** | **Description** | **Default** |
+| :--- | :--- | :--- |
+| `router.placementEval.enabled` | Co-locate `blis placement-eval-server` and set `PLACEMENT_EVAL_URL`. | `false` |
+| `router.placementEval.port` | Sidecar listen port. | `9091` |
+| `router.placementEval.timeoutMs` | EPP client timeout (`PLACEMENT_EVAL_TIMEOUT_MS`). | `"50"` |
+| `router.placementEval.image` | BLIS image (`registry` / `repository` / `tag`). | `ghcr.io/inference-sim/blis:latest` |
+
+```yaml
+router:
+  placementEval:
+    enabled: true
+    port: 9091
+    timeoutMs: "50"
+```
+
+---
+
 ## Deployment Mode Specific Configurations
 
 Depending on your target deployment architecture (Gateway Mode vs Standalone Mode), utilize the following specific configurations.

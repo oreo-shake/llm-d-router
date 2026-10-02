@@ -173,6 +173,7 @@
                 fieldRef:
                   fieldPath: metadata.name
         {{- include "llm-d-router.latencyPredictor.env" . | nindent 12 }}
+        {{- include "llm-d-router.placementEval.env" . | nindent 12 }}
         {{- if .Values.router.tracing.enabled }}
             - name: OTEL_SERVICE_NAME
               value: "llm-d-router/epp"
@@ -253,6 +254,7 @@
             {{- end }}
         {{- end }}
       {{- include "llm-d-router.latencyPredictor.containers" . | nindent 8 }}
+      {{- include "llm-d-router.placementEval.containers" . | nindent 8 }}
       volumes:
       {{- if .Values.router.epp.volumes }}
       {{- toYaml .Values.router.epp.volumes | nindent 8 }}

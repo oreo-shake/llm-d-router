@@ -256,3 +256,28 @@ latencyPredictor:
     LATENCY_MAX_CONCURRENT_DISPATCHES: "36"
     LATENCY_COALESCE_WINDOW_MS: "1"
 
+# BLIS placement-eval sidecar for simulated C^future (V_H). Disabled by default.
+placementEval:
+  enabled: false
+  port: 9091
+  timeoutMs: "50"
+  image:
+    registry: ghcr.io/inference-sim
+    repository: blis
+    tag: latest
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "2000m"
+      memory: "2Gi"
+  livenessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 20
+  readinessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+  eppEnv: {}
+

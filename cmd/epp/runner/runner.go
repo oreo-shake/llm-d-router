@@ -67,6 +67,7 @@ import (
 	attrlatency "github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/datalayer/attribute/latency"
 	attrmodels "github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/datalayer/attribute/models"
 	attrprefix "github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/datalayer/attribute/prefix"
+	attrslarisk "github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/datalayer/attribute/slarisk"
 	attrsession "github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/datalayer/attribute/session"
 	attrtopology "github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/datalayer/attribute/topology"
 	discoveryfile "github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/datalayer/discovery/file"
@@ -100,6 +101,7 @@ import (
 	"github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/requestcontrol/dataproducer/p2psource"
 	preciseproducer "github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/requestcontrol/dataproducer/preciseprefixcache"
 	latencyproducer "github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/requestcontrol/dataproducer/predictedlatency"
+	"github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/requestcontrol/dataproducer/sladistribution"
 	"github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/requestcontrol/dataproducer/sessionid"
 	"github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/requestcontrol/dataproducer/tokenizer"
 	"github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/requestcontrol/requestattributereporter"
@@ -119,6 +121,7 @@ import (
 	endpointattributefilter "github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/scheduling/filter/endpointattribute"
 	"github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/scheduling/filter/prefixcacheaffinity"
 	sessionaffinityfilter "github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/scheduling/filter/sessionaffinity"
+	"github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/scheduling/filter/slarisk"
 	"github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/scheduling/filter/sloheadroomtier"
 	topologyaffinityfilter "github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/scheduling/filter/topologyaffinity"
 	utilizationfilter "github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/scheduling/filter/utilization"
@@ -136,6 +139,7 @@ import (
 	"github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/scheduling/scorer/kvcacheutilization"
 	latencyscorer "github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/scheduling/scorer/latency"
 	"github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/scheduling/scorer/loadaware"
+	"github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/scheduling/scorer/slacost"
 	"github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/scheduling/scorer/loraaffinity"
 	"github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/scheduling/scorer/mmcacheaffinity"
 	"github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/scheduling/scorer/nohitlru"
@@ -674,6 +678,7 @@ func (r *Runner) registerInTreePlugins() {
 	fwkplugin.RegisterAsDefaultProducer(reqdataprodprefix.ApproxPrefixCachePluginType, fwkplugin.StabilityBeta, reqdataprodprefix.ApproxPrefixCacheFactory, attrprefix.PrefixCacheMatchInfoDataKey)
 	fwkplugin.RegisterAsDefaultProducer(inflightload.InFlightLoadProducerType, fwkplugin.StabilityBeta, inflightload.InFlightLoadProducerFactory, attrconcurrency.InFlightLoadDataKey)
 	fwkplugin.RegisterAsDefaultProducer(latencyproducer.LatencyDataProviderPluginType, fwkplugin.StabilityBeta, latencyproducer.PredictedLatencyFactory, attrlatency.LatencyPredictionInfoDataKey)
+	fwkplugin.RegisterAsDefaultProducer(sladistribution.PluginType, fwkplugin.StabilityAlpha, sladistribution.Factory, attrslarisk.SLARiskInfoDataKey)
 	fwkplugin.RegisterDeprecated(tokenizer.LegacyPluginType, fwkplugin.StabilityBeta, tokenizer.LegacyPluginFactory, "v0.9.0", "v0.11.0", tokenizer.PluginType) //nolint:staticcheck // deprecated in v0.9.0 (#863)
 	fwkplugin.RegisterAsDefaultProducer(mmproducer.ProducerType, fwkplugin.StabilityBeta, mmproducer.Factory, mmproducer.ProducedKey)
 	fwkplugin.RegisterAsDefaultProducer(tokenizer.PluginType, fwkplugin.StabilityBeta, tokenizer.PluginFactory, tokenizer.TokenizedPromptDataKey)
@@ -689,6 +694,8 @@ func (r *Runner) registerInTreePlugins() {
 	fwkplugin.Register(prefixcacheaffinity.PluginType, fwkplugin.StabilityBeta, prefixcacheaffinity.Factory)
 	fwkplugin.Register(sloheadroomtier.PluginType, fwkplugin.StabilityBeta, sloheadroomtier.Factory)
 	fwkplugin.Register(latencyscorer.LatencyScorerType, fwkplugin.StabilityBeta, latencyscorer.Factory)
+	fwkplugin.Register(slarisk.PluginType, fwkplugin.StabilityAlpha, slarisk.Factory)
+	fwkplugin.Register(slacost.PluginType, fwkplugin.StabilityAlpha, slacost.Factory)
 	fwkplugin.Register(bylabel.PrefillRoleType, fwkplugin.StabilityBeta, bylabel.PrefillRoleFactory)
 	fwkplugin.Register(bylabel.DecodeRoleType, fwkplugin.StabilityBeta, bylabel.DecodeRoleFactory)
 

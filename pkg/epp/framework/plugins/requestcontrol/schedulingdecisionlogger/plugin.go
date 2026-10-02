@@ -33,7 +33,9 @@ import (
 	"github.com/llm-d/llm-d-router/pkg/epp/framework/interface/plugin"
 	"github.com/llm-d/llm-d-router/pkg/epp/framework/interface/requestcontrol"
 	fwksched "github.com/llm-d/llm-d-router/pkg/epp/framework/interface/scheduling"
+	attrlatency "github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/datalayer/attribute/latency"
 	attrprefix "github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/datalayer/attribute/prefix"
+	attrslarisk "github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/datalayer/attribute/slarisk"
 	"github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/scheduling/scorer/ttftcost"
 )
 
@@ -51,6 +53,10 @@ type Config struct {
 	// PrefixMatchInfoProducerName selects which PrefixCacheMatchInfo producer
 	// to read. Required.
 	PrefixMatchInfoProducerName string `json:"prefixMatchInfoProducerName"`
+	// LatencyPredictionInfoProducerName selects LatencyPredictionInfo (optional SLA audit).
+	LatencyPredictionInfoProducerName string `json:"latencyPredictionInfoProducerName,omitempty"`
+	// SLARiskInfoProducerName selects SLARiskInfo (optional SLA audit).
+	SLARiskInfoProducerName string `json:"slaRiskInfoProducerName,omitempty"`
 	// OutputPath appends JSONL decision records. Empty emits structured logs only.
 	OutputPath string `json:"outputPath,omitempty"`
 	// IIBWeights enables counterfactual.iib and any profile component type
@@ -70,14 +76,16 @@ type Config struct {
 
 // Plugin implements requestcontrol.PreRequest.
 type Plugin struct {
-	typedName          plugin.TypedName
-	prefixMatchDataKey plugin.DataKey
-	experiment         string
-	sampleRate         float64
-	logAgrees          bool
-	iibWeights         *ttftcost.Weights
-	profiles           []compiledProfile
-	writer             *jsonlWriter
+	typedName                    plugin.TypedName
+	prefixMatchDataKey           plugin.DataKey
+	latencyPredictionInfoDataKey plugin.DataKey
+	slaRiskDataKey               plugin.DataKey
+	experiment                   string
+	sampleRate                   float64
+	logAgrees                    bool
+	iibWeights                   *ttftcost.Weights
+	profiles                     []compiledProfile
+	writer                       *jsonlWriter
 }
 
 var _ requestcontrol.PreRequest = &Plugin{}
@@ -128,6 +136,12 @@ func New(name string, cfg Config, handle plugin.Handle) (*Plugin, error) {
 		typedName: plugin.TypedName{Type: PluginType, Name: name},
 		prefixMatchDataKey: attrprefix.PrefixCacheMatchInfoDataKey.WithNonEmptyProducerName(
 			cfg.PrefixMatchInfoProducerName,
+		),
+		latencyPredictionInfoDataKey: attrlatency.LatencyPredictionInfoDataKey.WithNonEmptyProducerName(
+			cfg.LatencyPredictionInfoProducerName,
+		),
+		slaRiskDataKey: attrslarisk.SLARiskInfoDataKey.WithNonEmptyProducerName(
+			cfg.SLARiskInfoProducerName,
 		),
 		experiment: cfg.Experiment,
 		sampleRate: sampleRate,
@@ -248,6 +262,7 @@ func (p *Plugin) buildRecord(request *fwksched.InferenceRequest, schedulingResul
 			cand.WaitingQueueSize = metrics.WaitingQueueSize
 			cand.KVCacheUsagePercent = metrics.KVCacheUsagePercent
 		}
+		enrichSLACandidate(&cand, ep, p.slaRiskDataKey, p.latencyPredictionInfoDataKey)
 		cands = append(cands, cand)
 	}
 	if len(cands) == 0 {
@@ -301,4 +316,32 @@ func endpointsFromProfile(pr *fwksched.ProfileRunResult) []fwksched.Endpoint {
 		return out
 	}
 	return pr.TargetEndpoints
+}
+
+func enrichSLACandidate(cand *CandidateFeatures, ep fwksched.Endpoint, riskKey, latencyKey plugin.DataKey) {
+	if raw, ok := ep.Get(riskKey); ok {
+		if info, ok := raw.(*attrslarisk.SLARiskInfo); ok {
+			ttft, tpot := info.TTFTPred(), info.TPOTPred()
+			ttftS, tpotS := info.TTFTSurvival(), info.TPOTSurvival()
+			feas := info.Feasible()
+			cand.PredictedTTFTMs = &ttft
+			cand.PredictedTPOTMs = &tpot
+			cand.TTFTSurvival = &ttftS
+			cand.TPOTSurvival = &tpotS
+			cand.SLAFeasible = &feas
+			cand.SLARiskSource = info.Source()
+			if info.HasFuture() {
+				v := info.FutureCost()
+				cand.SLAFutureCost = &v
+			}
+			return
+		}
+	}
+	if raw, ok := ep.Get(latencyKey); ok {
+		if info, ok := raw.(*attrlatency.LatencyPredictionInfo); ok {
+			ttft, tpot := info.TTFT(), info.TPOT()
+			cand.PredictedTTFTMs = &ttft
+			cand.PredictedTPOTMs = &tpot
+		}
+	}
 }
