@@ -29,7 +29,21 @@ func TestQuantileFeasible(t *testing.T) {
 	assert.False(t, QuantileFeasible(100, 60, slo))
 }
 
-func TestSurvivalFromQuantile_Monotone(t *testing.T) {
+func TestSurvivalFromLogNormal(t *testing.T) {
+	// pred == S => about 0.5
+	mid := SurvivalFromLogNormal(200, 0.5, 200, 0.25)
+	assert.InDelta(t, 0.5, mid, 0.02)
+	low := SurvivalFromLogNormal(50, 0.5, 200, 0.25)
+	high := SurvivalFromLogNormal(800, 0.5, 200, 0.25)
+	assert.Less(t, low, mid)
+	assert.Greater(t, high, mid)
+	assert.Equal(t, 0.0, SurvivalFromLogNormal(100, 0.5, 0, 0.25))
+	// non-positive pred falls back to logistic
+	fb := SurvivalFromQuantile(0, 200, 0.25)
+	assert.Equal(t, fb, SurvivalFromLogNormal(0, 0.5, 200, 0.25))
+}
+
+func TestSurvivalFromQuantile(t *testing.T) {
 	low := SurvivalFromQuantile(50, 200, 0.25)
 	high := SurvivalFromQuantile(250, 200, 0.25)
 	assert.Less(t, low, 0.5)
@@ -46,6 +60,7 @@ func TestCostNowAndViolation(t *testing.T) {
 	assert.Less(t, CostNow(ok, slo), CostNow(bad, slo))
 	assert.Greater(t, CostViolation(bad, slo), 0.0)
 	assert.InDelta(t, 0.0, CostViolation(ok, slo), 1e-9)
+	assert.Greater(t, CostOverrun(200, 40, slo), CostOverrun(10, 1, slo))
 }
 
 func TestRiskFromCDF_EpsilonBudget(t *testing.T) {

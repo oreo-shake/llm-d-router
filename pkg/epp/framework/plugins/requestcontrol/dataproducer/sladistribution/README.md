@@ -5,7 +5,7 @@ Writes `SLARiskInfo` per endpoint from `LatencyPredictionInfo` and the request S
 | Mode | Feasibility | Survival |
 |------|-------------|----------|
 | `quantile` (default) | \(Q \le S\) | logistic map of \((Q,S)\) |
-| `cdf` | \(P(L>S) \le \epsilon\) | same logistic today; swap for a sidecar CDF later |
+| `cdf` | \(P(L>S) \le \epsilon\) | lognormal from residual-calibrated pred and log-residual sigma; logistic if sigma is 0 |
 
 ## Future cost \(V_H\)
 

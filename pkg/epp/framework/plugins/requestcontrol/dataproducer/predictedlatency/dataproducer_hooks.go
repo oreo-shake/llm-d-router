@@ -18,11 +18,11 @@ package predictedlatency
 
 import (
 	"context"
-	"math"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	logutil "github.com/llm-d/llm-d-router/pkg/common/observability/logging"
+	fwkdl "github.com/llm-d/llm-d-router/pkg/epp/framework/interface/datalayer"
 	"github.com/llm-d/llm-d-router/pkg/epp/framework/interface/plugin"
 	"github.com/llm-d/llm-d-router/pkg/epp/framework/interface/requestcontrol"
 	fwksched "github.com/llm-d/llm-d-router/pkg/epp/framework/interface/scheduling"
@@ -44,21 +44,32 @@ func (pl *PredictedLatency) Produce(ctx context.Context, request *fwksched.Infer
 	pl.parseSLOHeaders(ctx, request, predictedLatencyCtx)
 	var prefixCacheScore float64
 	for _, endpoint := range endpoints {
-
+		shape := prefixShape{}
 		if prefixCacheInfoRaw, ok := endpoint.Get(pl.prefixMatchDataKey); ok {
 			prefixCacheInfo := prefixCacheInfoRaw.(*attrprefix.PrefixCacheMatchInfo)
-			prefixCacheScore = prefixCacheInfo.MatchBlocks() / float64(prefixCacheInfo.TotalBlocks())
-			if !math.IsNaN(prefixCacheScore) {
+			shape = prefixShapeFromInfo(prefixCacheInfo)
+			prefixCacheScore = shape.score
+			if prefixCacheScore > 0 {
 				logger.V(logutil.DEBUG).Info("Found prefix cache score in pod attribute", "pod", endpoint.GetMetadata().ID.Name, "score", prefixCacheScore)
 			} else {
-				prefixCacheScore = 0.0
-				logger.V(logutil.DEBUG).Info("Prefix cache score is NaN, defaulting to 0", "pod", endpoint.GetMetadata().ID.Name)
+				logger.V(logutil.DEBUG).Info("Prefix cache score is empty, defaulting to 0", "pod", endpoint.GetMetadata().ID.Name)
 			}
 		} else {
 			logger.V(logutil.DEBUG).Info("No prefix cache score found in pod attribute, defaulting to 0", "pod", endpoint.GetMetadata().ID.Name)
 			prefixCacheScore = 0.0
 		}
-		predictedLatencyCtx.prefixCacheScoresForEndpoints[endpoint.GetMetadata().ID.Name] = prefixCacheScore
+		podName := endpoint.GetMetadata().ID.Name
+		predictedLatencyCtx.prefixCacheScoresForEndpoints[podName] = prefixCacheScore
+		predictedLatencyCtx.prefixShapesForEndpoints[podName] = shape
+		ewmaTTFT, ewmaTPOT := pl.residuals.PodEWMA(podName)
+		predictedLatencyCtx.latencyShapesForEndpoints[podName] = buildLatencyShape(
+			shape,
+			endpoint.GetMetrics(),
+			predictedLatencyCtx.inputTokenCount,
+			uncachedTokens(endpoint, pl.uncachedTokensDataKey),
+			ewmaTTFT, ewmaTPOT,
+			predictedLatencyCtx.ttftSLO, predictedLatencyCtx.avgTPOTSLO,
+		)
 
 		if pl.config.UseEncoderCacheFeatures {
 			pl.captureEncoderCacheSizes(ctx, predictedLatencyCtx, endpoint)
@@ -94,7 +105,8 @@ func (pl *PredictedLatency) Produce(ctx context.Context, request *fwksched.Infer
 					pred.TTFT,
 					pred.TPOT,
 					pl.getEndpointRunningRequestCount(pred.Endpoint),
-				)
+				).WithLogSigma(pl.residuals.TTFTSigma(), pl.residuals.TPOTSigma())
+				pl.attachDist(latencyInfo, predictedLatencyCtx, pred.Endpoint)
 				pred.Endpoint.Put(pl.latencyPredictionInfoDataKey, latencyInfo)
 				logger.V(logutil.DEBUG).Info("Stored latency prediction in endpoint",
 					"pod", pred.Endpoint.GetMetadata().ID.Name,
@@ -179,4 +191,43 @@ func (pl *PredictedLatency) Consumes() plugin.DataDependencies {
 		required[pl.encoderCacheDataKey] = attrmm.EncoderCacheMatchInfo{}
 	}
 	return plugin.DataDependencies{Required: required}
+}
+
+func (pl *PredictedLatency) attachDist(info *attrlatency.LatencyPredictionInfo, ctx *predictedLatencyCtx, ep fwksched.Endpoint) {
+	if info == nil || ctx == nil || ep == nil || ep.GetMetadata() == nil {
+		return
+	}
+	shape := ctx.latencyShapesForEndpoints[ep.GetMetadata().ID.Name]
+	x := distFeatures(shape, ep.GetMetrics(), ctx.inputTokenCount)
+	ttftS, tpotS := ctx.ttftSLO, ctx.avgTPOTSLO
+	info.WithDist(
+		pl.ttftExceed.Predict(x, ttftS),
+		pl.tpotExceed.Predict(x, tpotS),
+		pl.ttftAFT.Survival(x, ttftS),
+		pl.tpotAFT.Survival(x, tpotS),
+		pl.ttftAFT.ExpectedOverrun(x, ttftS),
+		pl.tpotAFT.ExpectedOverrun(x, tpotS),
+		pl.ttftAFT.ready() && pl.tpotAFT.ready(),
+	)
+}
+
+func (pl *PredictedLatency) observeDist(ctx *predictedLatencyCtx, pod string) {
+	if ctx == nil {
+		return
+	}
+	shape := ctx.latencyShapesForEndpoints[pod]
+	var metrics *fwkdl.Metrics
+	for _, m := range ctx.lastSeenMetrics {
+		metrics = m
+		break
+	}
+	x := distFeatures(shape, metrics, ctx.inputTokenCount)
+	if ctx.ttft > 0 {
+		pl.ttftAFT.Observe(x, ctx.ttft)
+		pl.ttftExceed.Observe(x, ctx.ttftSLO, ctx.ttft)
+	}
+	if ctx.avgTPOT > 0 {
+		pl.tpotAFT.Observe(x, ctx.avgTPOT)
+		pl.tpotExceed.Observe(x, ctx.avgTPOTSLO, ctx.avgTPOT)
+	}
 }

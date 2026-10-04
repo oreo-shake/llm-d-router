@@ -97,11 +97,17 @@ func (pl *PredictedLatency) generatePredictions(ctx context.Context, predictedLa
 		predResult := endpointPredictionResult{Endpoint: endpoint}
 
 		predResult.PrefixCacheScore = prefixCacheScores[i]
-		predResult.TTFT = prediction.TTFT
-		predResult.TPOT = prediction.TPOT
+		if prediction != nil {
+			podName := endpoint.GetMetadata().ID.Name
+			ewmaTTFT, ewmaTPOT := pl.residuals.PodEWMA(podName)
+			prediction.TTFT = calibratePred(clampPositivePred(prediction.TTFT, ewmaTTFT), pl.residuals.TTFTMu())
+			prediction.TPOT = calibratePred(clampPositivePred(prediction.TPOT, ewmaTPOT), pl.residuals.TPOTMu())
+			predResult.TTFT = prediction.TTFT
+			predResult.TPOT = prediction.TPOT
 
-		podMinTPOTSLO := pl.getEndpointMinTPOTSLO(endpoint)
-		predResult.TTFTValid, predResult.TPOTValid, predResult.IsValid, predResult.Headroom, predResult.TTFTHeadroom = pl.validatePrediction(prediction, predictedLatencyCtx, podMinTPOTSLO)
+			podMinTPOTSLO := pl.getEndpointMinTPOTSLO(endpoint)
+			predResult.TTFTValid, predResult.TPOTValid, predResult.IsValid, predResult.Headroom, predResult.TTFTHeadroom = pl.validatePrediction(prediction, predictedLatencyCtx, podMinTPOTSLO)
+		}
 
 		// Neutralize TPOT when it's not meaningful:
 		// - Non-streaming mode: TPOT is never trained (no per-token observations)
@@ -117,10 +123,9 @@ func (pl *PredictedLatency) generatePredictions(ctx context.Context, predictedLa
 		logger.V(logutil.DEBUG).Info("Prediction for scheduling",
 			"endpoint", endpoint.GetMetadata().String(),
 			"prefixCacheScore", predResult.PrefixCacheScore,
-			"TTFT", prediction.TTFT,
-			"TPOT", prediction.TPOT,
+			"TTFT", predResult.TTFT,
+			"TPOT", predResult.TPOT,
 			"buffer", pl.config.SLOBufferFactor,
-			"podMinTPOTSLO", podMinTPOTSLO,
 			"ttftSLO", predictedLatencyCtx.ttftSLO,
 			"requestTPOTSLO", predictedLatencyCtx.avgTPOTSLO,
 			"tpotHeadroom", predResult.Headroom,

@@ -169,6 +169,11 @@ func (pl *PredictedLatency) ResponseBody(ctx context.Context, request *fwksched.
 			if predictedLatencyCtx.ttftSLO > 0 {
 				recordRequestTTFTWithSLO(ctx, pl.typedName.Name, pl.typedName.Type, predictedLatencyCtx.incomingModelName, request.TargetModel, predictedLatencyCtx.ttft, predictedLatencyCtx.ttftSLO)
 			}
+			pod := ""
+			if targetMetadata != nil {
+				pod = targetMetadata.ID.Name
+			}
+			pl.residuals.ObserveTTFT(pod, predictedLatencyCtx.predictedTTFT, predictedLatencyCtx.ttft)
 		}
 
 		if predictedLatencyCtx.ttft > 0 && predictedLatencyCtx.generatedTokenCount > 1 {
@@ -183,6 +188,11 @@ func (pl *PredictedLatency) ResponseBody(ctx context.Context, request *fwksched.
 			if predictedLatencyCtx.avgTPOTSLO > 0 {
 				recordRequestTPOTWithSLO(ctx, pl.typedName.Name, pl.typedName.Type, predictedLatencyCtx.incomingModelName, request.TargetModel, predictedLatencyCtx.avgTPOT, predictedLatencyCtx.avgTPOTSLO)
 			}
+			pod := ""
+			if targetMetadata != nil {
+				pod = targetMetadata.ID.Name
+			}
+			pl.residuals.ObserveTPOT(pod, predictedLatencyCtx.avgPredictedTPOT, predictedLatencyCtx.avgTPOT)
 
 			if m, err := getLatestMetricsForProfile(predictedLatencyCtx, ""); err == nil {
 				entry := buildTrainingEntry(
@@ -201,10 +211,33 @@ func (pl *PredictedLatency) ResponseBody(ctx context.Context, request *fwksched.
 				entry.PrefillTokensInFlight = predictedLatencyCtx.prefillTokensAtDispatch
 				entry.DecodeTokensInFlight = predictedLatencyCtx.decodeTokensAtDispatch
 				entry.NumRequestRunning = predictedLatencyCtx.requestsAtDispatch
+				if s, ok := predictedLatencyCtx.latencyShapesForEndpoints[targetMetadata.ID.Name]; ok {
+					entry.LatencyShape = s
+				}
 				if err := pl.latencypredictor.AddTrainingDataBulk([]latencypredictor.TrainingEntry{entry}); err != nil {
 					logger.V(logutil.DEBUG).Error(err, "record TPOT training failed")
 				}
 			}
+		}
+
+		if predictedLatencyCtx.ttft > 0 {
+			pod := ""
+			if targetMetadata != nil {
+				pod = targetMetadata.ID.Name
+			}
+			pl.observeDist(predictedLatencyCtx, pod)
+			x := distFeatures(predictedLatencyCtx.latencyShapesForEndpoints[pod], nil, predictedLatencyCtx.inputTokenCount)
+			logger.Info("distribution observation",
+				"ttft_ms", predictedLatencyCtx.ttft,
+				"slo_ttft_ms", predictedLatencyCtx.ttftSLO,
+				"p_aft_ttft", pl.ttftAFT.Survival(x, predictedLatencyCtx.ttftSLO),
+				"p_exc_ttft", pl.ttftExceed.Predict(x, predictedLatencyCtx.ttftSLO),
+				"tpot_ms", predictedLatencyCtx.avgTPOT,
+				"slo_tpot_ms", predictedLatencyCtx.avgTPOTSLO,
+				"p_aft_tpot", pl.tpotAFT.Survival(x, predictedLatencyCtx.avgTPOTSLO),
+				"p_exc_tpot", pl.tpotExceed.Predict(x, predictedLatencyCtx.avgTPOTSLO),
+				"aft_ready", pl.ttftAFT.ready(),
+				"exc_ready", pl.ttftExceed.ready())
 		}
 
 		id := request.Headers[reqcommon.RequestIDHeaderKey]

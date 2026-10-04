@@ -37,9 +37,11 @@ Default `lambda: 0` → \(V_H\) is not used. Set `lambda > 0` and
 
 | Feature | Source |
 |---------|--------|
-| Predicted TTFT / TPOT | `LatencyPredictionInfo` |
-| Survival \(P(L>S)\), feasible flag | `SLARiskInfo` |
-| Future cost \(V_H\) | `SLARiskInfo.FutureCost` from placement-eval sidecar |
+| Residual-calibrated TTFT / TPOT and log-residual sigma | `LatencyPredictionInfo` (point pred * exp(mu) after warm-up) |
+| Survival P(L>S), feasible flag | `SLARiskInfo`. In `cdf` mode: online AFT (`survivalModel: aft`, default) or exceedance classifier when `DistReady`; otherwise lognormal wrap of the sidecar point pred |
+| GPU/CPU cached tokens, unmatched tokens, unmatched quadratic (n^2-m^2 blocks) | `predicted-latency-producer` from `PrefixCacheMatchInfo` |
+| Waiting tokens, KV free fraction, uncached request tokens, per-pod EWMA | `predicted-latency-producer` |
+| Future cost V_H | `SLARiskInfo.FutureCost` from placement-eval sidecar |
 
 ### Tier table
 
@@ -52,11 +54,11 @@ Request resolution: `x-llm-d-slo-tier` → named tier; else SLO headers; else fi
 ```text
 predicted-latency-producer
         ↓
-sla-distribution-producer   (quantile|cdf; optional placement-eval → V_H)
+sla-distribution-producer   (quantile|cdf; survivalModel aft|exceedance|lognormal)
         ↓
 sla-risk-filter             (F_i; empty → passthrough)
         ↓
-sla-cost-scorer             (C_now | C_violation + λ V_H)
+sla-cost-scorer             (C_now from P(L>S), or useExpectedOverrun; + λ V_H)
         ↓
 picker
 ```
@@ -72,7 +74,8 @@ plugins:
   - type: predicted-latency-producer
   - type: sla-distribution-producer
     parameters:
-      mode: quantile
+      mode: cdf
+      survivalModel: aft
       tiers:
         - name: gold
           ttftSloMs: 200

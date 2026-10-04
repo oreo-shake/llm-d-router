@@ -179,6 +179,25 @@ type TrainingEntry struct {
 	PrefillTokensInFlight int64     `json:"prefill_tokens_in_flight"`
 	DecodeTokensInFlight  int64     `json:"decode_tokens_in_flight"`
 	Timestamp             time.Time `json:"timestamp"`
+	LatencyShape
+}
+
+// LatencyShape is the extra request/server geometry used for TTFT/TPOT
+// distribution modeling. Extra JSON fields are ignored by older predictor
+// sidecars that do not yet train on them.
+type LatencyShape struct {
+	CachedGPUTokens          int     `json:"cached_gpu_tokens,omitempty"`
+	CachedCPUTokens          int     `json:"cached_cpu_tokens,omitempty"`
+	UnmatchedTokens          int     `json:"unmatched_tokens,omitempty"`
+	UnmatchedQuadraticBlocks float64 `json:"unmatched_quadratic_blocks,omitempty"`
+	WaitingTokens            int     `json:"waiting_tokens,omitempty"`
+	KVFreeFraction           float64 `json:"kv_free_fraction,omitempty"`
+	LogInputTokenLength      float64 `json:"log_input_token_length,omitempty"`
+	EwmaTTFTMs               float64 `json:"ewma_ttft_ms,omitempty"`
+	EwmaTPOTMs               float64 `json:"ewma_tpot_ms,omitempty"`
+	SLOTTFTMs                float64 `json:"slo_ttft_ms,omitempty"`
+	SLOTPOTMs                float64 `json:"slo_tpot_ms,omitempty"`
+	UncachedRequestTokens    int64   `json:"uncached_request_tokens,omitempty"`
 }
 
 type BulkTrainingRequest struct {
@@ -200,6 +219,7 @@ type PredictionRequest struct {
 	PodType               string `json:"pod_type,omitempty"` // "prefill", "decode", or "" for monolithic
 	PrefillTokensInFlight int64  `json:"prefill_tokens_in_flight"`
 	DecodeTokensInFlight  int64  `json:"decode_tokens_in_flight"`
+	LatencyShape
 }
 
 type PredictionResponse struct {

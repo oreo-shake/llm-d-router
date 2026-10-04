@@ -77,8 +77,14 @@ type PredictedLatency struct {
 	config                       Config
 	prefixMatchDataKey           plugin.DataKey
 	inFlightLoadDataKey          plugin.DataKey
+	uncachedTokensDataKey        plugin.DataKey
 	encoderCacheDataKey          plugin.DataKey
 	latencyPredictionInfoDataKey plugin.DataKey
+	residuals                    *residualTracker
+	ttftAFT                      *distAFT
+	tpotAFT                      *distAFT
+	ttftExceed                   *distLogistic
+	tpotExceed                   *distLogistic
 }
 
 // endpointInFlightLoad reads the InFlightLoad attribute published by the
@@ -317,8 +323,14 @@ func NewPredictedLatency(name string, config Config, predictor latencypredictor.
 		config:                       config,
 		prefixMatchDataKey:           attrprefix.PrefixCacheMatchInfoDataKey.WithNonEmptyProducerName(config.PrefixMatchInfoProducerName),
 		inFlightLoadDataKey:          attrconcurrency.InFlightLoadDataKey.WithNonEmptyProducerName(config.InFlightLoadProducerName),
+		uncachedTokensDataKey:        attrconcurrency.UncachedRequestTokensDataKey.WithNonEmptyProducerName(config.InFlightLoadProducerName),
 		encoderCacheDataKey:          attrmm.EncoderCacheMatchInfoKey.WithNonEmptyProducerName(config.EncoderCacheMatchInfoProducerName),
 		latencyPredictionInfoDataKey: attrlatency.LatencyPredictionInfoDataKey.WithNonEmptyProducerName(name),
+		residuals:                    newResidualTracker(),
+		ttftAFT:                      newDistAFT(),
+		tpotAFT:                      newDistAFT(),
+		ttftExceed:                   newDistLogistic(),
+		tpotExceed:                   newDistLogistic(),
 	}
 
 	predictedLatency.sloContextStore = ttlcache.New(
@@ -386,6 +398,8 @@ type predictedLatencyCtx struct {
 	inputTokenCount int
 
 	prefixCacheScoresForEndpoints map[string]float64
+	prefixShapesForEndpoints      map[string]prefixShape
+	latencyShapesForEndpoints     map[string]latencypredictor.LatencyShape
 
 	// encoderInputSize is the request's total multimodal encoder item size;
 	// encoderMatchedSizeForEndpoints is the per-endpoint portion likely present
@@ -426,6 +440,8 @@ func newPredictedLatencyContext(request *fwksched.InferenceRequest) *predictedLa
 		inputTokenCount:                inputTokenCount,
 		lastSeenMetrics:                make(map[string]*fwkdl.Metrics),
 		prefixCacheScoresForEndpoints:  make(map[string]float64),
+		prefixShapesForEndpoints:       make(map[string]prefixShape),
+		latencyShapesForEndpoints:      make(map[string]latencypredictor.LatencyShape),
 		encoderMatchedSizeForEndpoints: make(map[string]int),
 		inFlightLoadForEndpoints:       make(map[string]inFlightLoadSnapshot),
 		predictionsForScheduling:       make(map[string]endpointPredictionResult),

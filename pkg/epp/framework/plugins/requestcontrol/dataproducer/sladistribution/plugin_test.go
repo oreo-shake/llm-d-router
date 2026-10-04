@@ -64,7 +64,61 @@ func TestProduce_QuantileAndCDFModes(t *testing.T) {
 	}
 }
 
-func TestFactory_InvalidMode(t *testing.T) {
+func TestProduce_LogNormalSigmaOverridesLogistic(t *testing.T) {
+	raw := []byte(`{"mode":"cdf","tiers":[{"name":"gold","ttftSloMs":200,"tpotSloMs":50,"epsilonTtft":0.5,"epsilonTpot":0.5}]}`)
+	pl, err := Factory("sla-distribution-producer", fwkplugin.StrictDecoder(raw), nil)
+	require.NoError(t, err)
+	p := pl.(*Plugin)
+
+	ep := fwksched.NewEndpoint(
+		&fwkdl.EndpointMetadata{ID: types.NamespacedName{Name: "p1"}},
+		&fwkdl.Metrics{},
+		fwkdl.NewAttributes(),
+	)
+	ep.Put(attrlatency.LatencyPredictionInfoDataKey, attrlatency.NewLatencyPredictionInfo(
+		true, true, 0, 0, 200, 50, 0).WithLogSigma(0.4, 0.2))
+
+	req := &fwksched.InferenceRequest{Headers: map[string]string{
+		metadata.TTFTSLOHeaderKey: "200",
+		metadata.TPOTSLOHeaderKey: "50",
+	}}
+	require.NoError(t, p.Produce(context.Background(), req, []fwksched.Endpoint{ep}))
+	rawAttr, ok := ep.Get(p.slaRiskDataKey)
+	require.True(t, ok)
+	info := rawAttr.(*attrslarisk.SLARiskInfo)
+	assert.Equal(t, "cdf", info.Source())
+	assert.InDelta(t, 0.5, info.TTFTSurvival(), 0.05)
+}
+
+func TestProduce_DistReadyAFT(t *testing.T) {
+	raw := []byte(`{"mode":"cdf","survivalModel":"aft","tiers":[{"name":"gold","ttftSloMs":200,"tpotSloMs":50,"epsilonTtft":0.5,"epsilonTpot":0.5}]}`)
+	pl, err := Factory("sla-distribution-producer", fwkplugin.StrictDecoder(raw), nil)
+	require.NoError(t, err)
+	p := pl.(*Plugin)
+
+	ep := fwksched.NewEndpoint(
+		&fwkdl.EndpointMetadata{ID: types.NamespacedName{Name: "p1"}},
+		&fwkdl.Metrics{},
+		fwkdl.NewAttributes(),
+	)
+	ep.Put(attrlatency.LatencyPredictionInfoDataKey, attrlatency.NewLatencyPredictionInfo(
+		true, true, 0, 0, 80, 15, 0).WithDist(0.9, 0.2, 0.3, 0.1, 40, 5, true))
+
+	req := &fwksched.InferenceRequest{Headers: map[string]string{
+		metadata.TTFTSLOHeaderKey: "200",
+		metadata.TPOTSLOHeaderKey: "50",
+	}}
+	require.NoError(t, p.Produce(context.Background(), req, []fwksched.Endpoint{ep}))
+	rawAttr, ok := ep.Get(p.slaRiskDataKey)
+	require.True(t, ok)
+	info := rawAttr.(*attrslarisk.SLARiskInfo)
+	assert.Equal(t, "aft", info.Source())
+	assert.InDelta(t, 0.3, info.TTFTSurvival(), 1e-9)
+	assert.InDelta(t, 0.1, info.TPOTSurvival(), 1e-9)
+	assert.InDelta(t, 40, info.TTFTOverrun(), 1e-9)
+}
+
+func TestFactoryInvalidMode(t *testing.T) {
 	_, err := Factory("t", fwkplugin.StrictDecoder([]byte(`{"mode":"nope"}`)), nil)
 	assert.Error(t, err)
 }

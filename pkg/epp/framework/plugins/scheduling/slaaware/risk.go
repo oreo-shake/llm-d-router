@@ -29,6 +29,26 @@ type EndpointRisk struct {
 	HasPrediction bool
 }
 
+// SurvivalFromLogNormal is P(L > S) when log L ~ N(log(pred), sigma^2).
+// pred is a positive residual-calibrated point estimate (ms); sigma is the
+// log-residual stddev. Falls back to SurvivalFromQuantile when pred or sigma
+// is non-positive.
+func SurvivalFromLogNormal(pred, sigma, slo, scale float64) float64 {
+	if slo <= 0 {
+		return 0
+	}
+	if pred <= 0 || sigma <= 0 || math.IsNaN(pred) || math.IsNaN(sigma) || math.IsInf(sigma, 0) {
+		return SurvivalFromQuantile(pred, slo, scale)
+	}
+	z := (math.Log(slo) - math.Log(pred)) / sigma
+	return 1 - normalCDF(z)
+}
+
+// normalCDF is Φ(x) for the standard normal (Abramowitz and Stegun 7.1.26).
+func normalCDF(x float64) float64 {
+	return 0.5 * (1 + math.Erf(x/math.Sqrt2))
+}
+
 // SurvivalFromQuantile approximates P(L > S) from a single quantile prediction Q
 // via a logistic centered at Q with scale = logisticScale * max(S, 1).
 func SurvivalFromQuantile(pred, slo, scale float64) float64 {
@@ -108,6 +128,18 @@ func RiskFromCDF(ttftSurv, tpotSurv, ttftPred, tpotPred float64, slo RequestSLO)
 // CostNow is C_ij^now = α_P(1-F_P) + α_D(1-F_D) = α_P·surv_P + α_D·surv_D.
 func CostNow(r EndpointRisk, slo RequestSLO) float64 {
 	return slo.AlphaTTFT*r.TTFTSurvival + slo.AlphaTPOT*r.TPOTSurvival
+}
+
+// CostOverrun is alpha-weighted E[(L-S)+] / S from the AFT model.
+func CostOverrun(ttftOverrunMs, tpotOverrunMs float64, slo RequestSLO) float64 {
+	var cost float64
+	if slo.TTFTSLOMs > 0 {
+		cost += slo.AlphaTTFT * math.Max(0, ttftOverrunMs) / slo.TTFTSLOMs
+	}
+	if slo.TPOTSLOMs > 0 {
+		cost += slo.AlphaTPOT * math.Max(0, tpotOverrunMs) / slo.TPOTSLOMs
+	}
+	return cost
 }
 
 // CostViolation is the soft relative quantile overrun used when F_i is empty.

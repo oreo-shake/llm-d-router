@@ -176,7 +176,8 @@ func (p *Predictor) predictBayesianRidge(req PredictionRequest, mr *MetricsRespo
 		c.TTFTCoeffs["num_request_running"]*float64(req.NumRequestRunning) +
 		c.TTFTCoeffs["prefix_cache_score"]*req.PrefixCacheScore +
 		c.TTFTCoeffs["encoder_input_size"]*float64(req.EncoderInputSize) +
-		c.TTFTCoeffs["encoder_matched_size"]*float64(req.EncoderMatchedSize)
+		c.TTFTCoeffs["encoder_matched_size"]*float64(req.EncoderMatchedSize) +
+		shapeDot(c.TTFTCoeffs, req.LatencyShape)
 
 	// Linear combination for TPOT (remains unchanged - no prefix cache effect)
 	tpot := c.TPOTIntercept +
@@ -184,7 +185,8 @@ func (p *Predictor) predictBayesianRidge(req PredictionRequest, mr *MetricsRespo
 		c.TPOTCoeffs["input_token_length"]*float64(req.InputTokenLength) +
 		c.TPOTCoeffs["num_request_waiting"]*float64(req.NumRequestWaiting) +
 		c.TPOTCoeffs["num_request_running"]*float64(req.NumRequestRunning) +
-		c.TPOTCoeffs["num_tokens_generated"]*float64(req.NumTokensGenerated)
+		c.TPOTCoeffs["num_tokens_generated"]*float64(req.NumTokensGenerated) +
+		shapeDot(c.TPOTCoeffs, req.LatencyShape)
 
 	return &PredictionResponse{
 		TTFT:          ttft,
@@ -232,6 +234,24 @@ func (p *Predictor) predictHTTP(ctx context.Context, req PredictionRequest) (*Pr
 	}
 
 	return &predResp, nil
+}
+
+func shapeDot(coeffs map[string]float64, s LatencyShape) float64 {
+	if len(coeffs) == 0 {
+		return 0
+	}
+	return coeffs["cached_gpu_tokens"]*float64(s.CachedGPUTokens) +
+		coeffs["cached_cpu_tokens"]*float64(s.CachedCPUTokens) +
+		coeffs["unmatched_tokens"]*float64(s.UnmatchedTokens) +
+		coeffs["unmatched_quadratic_blocks"]*s.UnmatchedQuadraticBlocks +
+		coeffs["waiting_tokens"]*float64(s.WaitingTokens) +
+		coeffs["kv_free_fraction"]*s.KVFreeFraction +
+		coeffs["log_input_token_length"]*s.LogInputTokenLength +
+		coeffs["ewma_ttft_ms"]*s.EwmaTTFTMs +
+		coeffs["ewma_tpot_ms"]*s.EwmaTPOTMs +
+		coeffs["slo_ttft_ms"]*s.SLOTTFTMs +
+		coeffs["slo_tpot_ms"]*s.SLOTPOTMs +
+		coeffs["uncached_request_tokens"]*float64(s.UncachedRequestTokens)
 }
 
 // ValidatePredictionRequest validates that a prediction request has all required fields

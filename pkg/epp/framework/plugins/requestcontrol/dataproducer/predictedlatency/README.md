@@ -15,7 +15,9 @@ DataProducer, PreRequest, ResponseHeader, ResponseBody, ProducerPlugin, Consumer
 - TTFT training data collection on first token / EOS
 - TPOT training data collection at EOS (streaming mode)
 - Per-endpoint running request queue tracking (TPOT SLO priority queue)
-- Prefix cache score forwarding from `PrefixCacheMatchInfo` attributes
+- Prefix cache score forwarding from `PrefixCacheMatchInfo` attributes, including GPU/CPU cached tokens, unmatched tokens, and unmatched quadratic (n²-m² in blocks)
+- Per-pod EWMA of realized TTFT/TPOT and online log-residual mu/sigma: published TTFT/TPOT are multiplied by exp(mu); P(L>S) uses a lognormal around that calibrated point
+- SLO thresholds and uncached request tokens as extra sidecar features
 - Multimodal encoder-cache size forwarding from `EncoderCacheMatchInfo` attributes
   (opt-in via `useEncoderCacheFeatures`)
 - TPOT neutralization for prefill endpoints in disaggregated serving
@@ -60,6 +62,8 @@ ensuring TPOT doesn't affect scoring, admission, or tier classification for pref
 | File | Purpose |
 |------|---------|
 | `plugin.go` | Struct, factory, config, per-request context, queue helpers |
+| `features.go` | GPU/CPU prefix geometry and LatencyShape extras |
+| `residual.go` | Online log-residual mu/sigma and per-pod EWMA |
 | `requestcontrol_hooks.go` | PreRequest, ResponseHeader, ResponseBody hooks |
 | `dataproducer_hooks.go` | Produce, Produces, Consumes |
 | `training.go` | buildTrainingEntry, buildPredictionRequest, bulkPredict |

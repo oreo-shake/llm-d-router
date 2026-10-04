@@ -46,6 +46,10 @@ const (
 	modeQuantile = "quantile"
 	modeCDF      = "cdf"
 
+	survAFT        = "aft"
+	survExceedance = "exceedance"
+	survLognormal  = "lognormal"
+
 	futureModeHistory   = "recent-history"
 	futureModeSynthetic = "synthetic"
 )
@@ -57,6 +61,10 @@ type Config struct {
 	slaaware.TierTable
 	// Mode is "quantile" (default) or "cdf".
 	Mode string `json:"mode,omitempty"`
+	// SurvivalModel is "aft" (default), "exceedance", or "lognormal".
+	// Used when Mode is cdf. aft = lognormal AFT mu(phi),sigma; exceedance =
+	// P(L>S|phi,log S); lognormal = wrap of the sidecar point pred.
+	SurvivalModel string `json:"survivalModel,omitempty"`
 
 	// EnablePlacementEval calls the BLIS sidecar for V_H and sets FutureCost.
 	EnablePlacementEval bool `json:"enablePlacementEval,omitempty"`
@@ -73,10 +81,10 @@ type Config struct {
 	HistoryMaxAgeSec   int `json:"historyMaxAgeSec,omitempty"`
 	// SyntheticRatePerSec / SyntheticPromptTokens / SyntheticOutputTokens / SyntheticSLOClass
 	// configure synthetic future windows.
-	SyntheticRatePerSec    float64 `json:"syntheticRatePerSec,omitempty"`
-	SyntheticPromptTokens  int     `json:"syntheticPromptTokens,omitempty"`
-	SyntheticOutputTokens  int     `json:"syntheticOutputTokens,omitempty"`
-	SyntheticSLOClass      string  `json:"syntheticSloClass,omitempty"`
+	SyntheticRatePerSec   float64 `json:"syntheticRatePerSec,omitempty"`
+	SyntheticPromptTokens int     `json:"syntheticPromptTokens,omitempty"`
+	SyntheticOutputTokens int     `json:"syntheticOutputTokens,omitempty"`
+	SyntheticSLOClass     string  `json:"syntheticSloClass,omitempty"`
 	// Hydrate template for sidecar pods (required fields for BLIS HydrateInstance).
 	MaxNumSeqs          int `json:"maxNumSeqs,omitempty"`
 	MaxNumBatchedTokens int `json:"maxNumBatchedTokens,omitempty"`
@@ -88,18 +96,18 @@ type Config struct {
 
 // DefaultConfig is used when parameters are omitted.
 var DefaultConfig = Config{
-	Mode:                modeQuantile,
-	HorizonUs:           2_000_000,
-	FutureWorkloadMode:  futureModeHistory,
-	HistoryMaxRequests:  256,
-	HistoryMaxAgeSec:    30,
-	SyntheticRatePerSec: 10,
+	Mode:                  modeQuantile,
+	HorizonUs:             2_000_000,
+	FutureWorkloadMode:    futureModeHistory,
+	HistoryMaxRequests:    256,
+	HistoryMaxAgeSec:      30,
+	SyntheticRatePerSec:   10,
 	SyntheticPromptTokens: 128,
 	SyntheticOutputTokens: 32,
-	MaxNumSeqs:          8,
-	MaxNumBatchedTokens: 4096,
-	TotalKVBlocks:       128,
-	BlockSizeTokens:     16,
+	MaxNumSeqs:            8,
+	MaxNumBatchedTokens:   4096,
+	TotalKVBlocks:         128,
+	BlockSizeTokens:       16,
 }
 
 // Plugin implements DataProducer for SLA risk attributes.
@@ -128,6 +136,14 @@ func Factory(name string, rawParameters *json.Decoder, _ fwkplugin.Handle) (fwkp
 	}
 	if config.Mode != modeQuantile && config.Mode != modeCDF {
 		return nil, fmt.Errorf("mode must be %q or %q, got %q", modeQuantile, modeCDF, config.Mode)
+	}
+	if config.SurvivalModel == "" {
+		config.SurvivalModel = survAFT
+	}
+	switch config.SurvivalModel {
+	case survAFT, survExceedance, survLognormal:
+	default:
+		return nil, fmt.Errorf("survivalModel must be aft, exceedance, or lognormal")
 	}
 	if config.HorizonUs == 0 {
 		config.HorizonUs = DefaultConfig.HorizonUs
@@ -215,19 +231,39 @@ func (p *Plugin) Produce(ctx context.Context, request *fwksched.InferenceRequest
 			continue
 		}
 		info := raw.(*attrlatency.LatencyPredictionInfo)
+		ttftSurv := slaaware.SurvivalFromQuantile(info.TTFT(), slo.TTFTSLOMs, slo.Scale)
+		tpotSurv := slaaware.SurvivalFromQuantile(info.TPOT(), slo.TPOTSLOMs, slo.Scale)
+		if info.TTFTSigma() > 0 {
+			ttftSurv = slaaware.SurvivalFromLogNormal(info.TTFT(), info.TTFTSigma(), slo.TTFTSLOMs, slo.Scale)
+		}
+		if info.TPOTSigma() > 0 {
+			tpotSurv = slaaware.SurvivalFromLogNormal(info.TPOT(), info.TPOTSigma(), slo.TPOTSLOMs, slo.Scale)
+		}
+		src := p.config.Mode
+		if p.config.Mode == modeCDF && info.DistReady() {
+			switch p.config.SurvivalModel {
+			case survExceedance:
+				ttftSurv, tpotSurv = info.TTFTExceedance(), info.TPOTExceedance()
+				src = survExceedance
+			case survAFT:
+				ttftSurv, tpotSurv = info.TTFTAFTSurv(), info.TPOTAFTSurv()
+				src = survAFT
+			}
+		}
 		var risk slaaware.EndpointRisk
 		if p.config.Mode == modeCDF {
-			ttftSurv := slaaware.SurvivalFromQuantile(info.TTFT(), slo.TTFTSLOMs, slo.Scale)
-			tpotSurv := slaaware.SurvivalFromQuantile(info.TPOT(), slo.TPOTSLOMs, slo.Scale)
 			risk = slaaware.RiskFromCDF(ttftSurv, tpotSurv, info.TTFT(), info.TPOT(), slo)
 		} else {
 			risk = slaaware.RiskFromQuantile(info.TTFT(), info.TPOT(), slo)
+			risk.TTFTSurvival = ttftSurv
+			risk.TPOTSurvival = tpotSurv
 		}
+		risk.Source = src
 		attr := attrslarisk.NewSLARiskInfo(
 			risk.TTFTPred, risk.TPOTPred,
 			risk.TTFTSurvival, risk.TPOTSurvival,
 			risk.Feasible, risk.Source,
-		)
+		).WithOverrun(info.TTFTOverrunMs(), info.TPOTOverrunMs())
 		attrs[i] = attr
 		ep.Put(p.slaRiskDataKey, attr)
 		logger.V(logutil.DEBUG).Info("stored SLA risk",

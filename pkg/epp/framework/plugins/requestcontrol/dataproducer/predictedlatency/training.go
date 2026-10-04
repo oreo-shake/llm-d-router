@@ -130,6 +130,11 @@ func recordTTFTTrainingData(
 		entry.NumRequestRunning = predictedLatencyCtx.requestsAtDispatch
 	}
 	entry.DecodeTokensInFlight = predictedLatencyCtx.decodeTokensAtDispatch
+	if targetEndpointMetadata != nil {
+		if s, ok := predictedLatencyCtx.latencyShapesForEndpoints[targetEndpointMetadata.ID.Name]; ok {
+			entry.LatencyShape = s
+		}
+	}
 	if err := predictor.AddTrainingDataBulk([]latencypredictor.TrainingEntry{entry}); err != nil {
 		logger.V(logutil.DEBUG).Error(err, "record TTFT training failed")
 	}
@@ -230,6 +235,11 @@ func bulkPredictWithMetrics(
 			// The predictor rejects matched > input, so clamp instead of
 			// failing the whole bulk request when the slices are inconsistent.
 			bulkRequests[i].EncoderMatchedSize = min(encoderMatchedSizes[i], bulkRequests[i].EncoderInputSize)
+		}
+		if predictedLatencyContext != nil && targetEndpointsMetadatas[i] != nil {
+			if shape, ok := predictedLatencyContext.latencyShapesForEndpoints[targetEndpointsMetadatas[i].ID.Name]; ok {
+				bulkRequests[i].LatencyShape = shape
+			}
 		}
 	}
 

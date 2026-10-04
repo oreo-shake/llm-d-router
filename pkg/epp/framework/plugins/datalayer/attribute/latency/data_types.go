@@ -46,6 +46,19 @@ type LatencyPredictionInfo struct {
 	ttft float64 // Predicted time to first token (ms)
 	tpot float64 // Predicted time per output token (ms)
 
+	// Log-space residual stddev for P(L > S) via a lognormal. Zero means
+	// downstream should fall back to the logistic quantile wrap.
+	ttftSigma float64
+	tpotSigma float64
+
+	ttftExceedance float64
+	tpotExceedance float64
+	ttftAFTSurv    float64
+	tpotAFTSurv    float64
+	ttftOverrunMs  float64
+	tpotOverrunMs  float64
+	distReady      bool
+
 	// Dispatched request count from EPP's internal tracking.
 	// More accurate than model server's RunningRequestsSize for routing,
 	// as it reflects requests dispatched by this EPP instance.
@@ -69,14 +82,44 @@ func NewLatencyPredictionInfo(
 	}
 }
 
+// WithLogSigma sets log-residual stddevs used for P(L > S) and returns the receiver.
+func (l *LatencyPredictionInfo) WithLogSigma(ttftSigma, tpotSigma float64) *LatencyPredictionInfo {
+	l.ttftSigma = ttftSigma
+	l.tpotSigma = tpotSigma
+	return l
+}
+
 // Getters
-func (l *LatencyPredictionInfo) TTFTValid() bool             { return l.ttftValid }
-func (l *LatencyPredictionInfo) TPOTValid() bool             { return l.tpotValid }
-func (l *LatencyPredictionInfo) IsValid() bool               { return l.ttftValid && l.tpotValid }
-func (l *LatencyPredictionInfo) TTFTHeadroom() float64       { return l.ttftHeadroom }
-func (l *LatencyPredictionInfo) TPOTHeadroom() float64       { return l.tpotHeadroom }
-func (l *LatencyPredictionInfo) TTFT() float64               { return l.ttft }
-func (l *LatencyPredictionInfo) TPOT() float64               { return l.tpot }
+func (l *LatencyPredictionInfo) TTFTValid() bool       { return l.ttftValid }
+func (l *LatencyPredictionInfo) TPOTValid() bool       { return l.tpotValid }
+func (l *LatencyPredictionInfo) IsValid() bool         { return l.ttftValid && l.tpotValid }
+func (l *LatencyPredictionInfo) TTFTHeadroom() float64 { return l.ttftHeadroom }
+func (l *LatencyPredictionInfo) TPOTHeadroom() float64 { return l.tpotHeadroom }
+func (l *LatencyPredictionInfo) TTFT() float64         { return l.ttft }
+func (l *LatencyPredictionInfo) TPOT() float64         { return l.tpot }
+func (l *LatencyPredictionInfo) TTFTSigma() float64    { return l.ttftSigma }
+func (l *LatencyPredictionInfo) TPOTSigma() float64    { return l.tpotSigma }
+func (l *LatencyPredictionInfo) WithDist(
+	ttftExceed, tpotExceed, ttftAFT, tpotAFT, ttftOverrun, tpotOverrun float64,
+	ready bool,
+) *LatencyPredictionInfo {
+	l.ttftExceedance = ttftExceed
+	l.tpotExceedance = tpotExceed
+	l.ttftAFTSurv = ttftAFT
+	l.tpotAFTSurv = tpotAFT
+	l.ttftOverrunMs = ttftOverrun
+	l.tpotOverrunMs = tpotOverrun
+	l.distReady = ready
+	return l
+}
+
+func (l *LatencyPredictionInfo) TTFTExceedance() float64     { return l.ttftExceedance }
+func (l *LatencyPredictionInfo) TPOTExceedance() float64     { return l.tpotExceedance }
+func (l *LatencyPredictionInfo) TTFTAFTSurv() float64        { return l.ttftAFTSurv }
+func (l *LatencyPredictionInfo) TPOTAFTSurv() float64        { return l.tpotAFTSurv }
+func (l *LatencyPredictionInfo) TTFTOverrunMs() float64      { return l.ttftOverrunMs }
+func (l *LatencyPredictionInfo) TPOTOverrunMs() float64      { return l.tpotOverrunMs }
+func (l *LatencyPredictionInfo) DistReady() bool             { return l.distReady }
 func (l *LatencyPredictionInfo) DispatchedRequestCount() int { return l.dispatchedRequestCount }
 
 // Clone implements fwkdl.Cloneable
@@ -91,6 +134,15 @@ func (l *LatencyPredictionInfo) Clone() fwkdl.Cloneable {
 		tpotHeadroom:           l.tpotHeadroom,
 		ttft:                   l.ttft,
 		tpot:                   l.tpot,
+		ttftSigma:              l.ttftSigma,
+		tpotSigma:              l.tpotSigma,
+		ttftExceedance:         l.ttftExceedance,
+		tpotExceedance:         l.tpotExceedance,
+		ttftAFTSurv:            l.ttftAFTSurv,
+		tpotAFTSurv:            l.tpotAFTSurv,
+		ttftOverrunMs:          l.ttftOverrunMs,
+		tpotOverrunMs:          l.tpotOverrunMs,
+		distReady:              l.distReady,
 		dispatchedRequestCount: l.dispatchedRequestCount,
 	}
 }

@@ -46,6 +46,8 @@ type Config struct {
 	slaaware.TierTable
 	// Lambda weights the future-cost term V_H. Zero disables C_future (default).
 	Lambda float64 `json:"lambda,omitempty"`
+	// UseExpectedOverrun ranks by E[(L-S)+]/S from the AFT model instead of P(L>S).
+	UseExpectedOverrun bool `json:"useExpectedOverrun,omitempty"`
 
 	LatencyPredictionInfoProducerName string `json:"latencyPredictionInfoProducerName,omitempty"`
 	SLARiskInfoProducerName           string `json:"slaRiskInfoProducerName,omitempty"`
@@ -156,6 +158,9 @@ func (s *Plugin) Score(ctx context.Context, request *fwksched.InferenceRequest, 
 				continue
 			}
 			cost = slaaware.CostNow(c.risk, slo)
+			if s.config.UseExpectedOverrun && c.attr != nil {
+				cost = slaaware.CostOverrun(c.attr.TTFTOverrun(), c.attr.TPOTOverrun(), slo)
+			}
 		} else {
 			cost = slaaware.CostViolation(c.risk, slo)
 		}

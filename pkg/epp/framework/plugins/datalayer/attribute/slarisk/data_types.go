@@ -33,9 +33,11 @@ type SLARiskInfo struct {
 	ttftSurvival float64 // P(TTFT > S)
 	tpotSurvival float64 // P(TPOT > S)
 	feasible     bool
-	source       string // "quantile" | "cdf"
+	source       string // "quantile" | "cdf" | "aft" | "exceedance" | "lognormal"
 	futureCost   float64
 	hasFuture    bool
+	ttftOverrun  float64
+	tpotOverrun  float64
 }
 
 // NewSLARiskInfo constructs an SLARiskInfo.
@@ -68,6 +70,17 @@ func (s *SLARiskInfo) Feasible() bool        { return s.feasible }
 func (s *SLARiskInfo) Source() string        { return s.source }
 func (s *SLARiskInfo) FutureCost() float64   { return s.futureCost }
 func (s *SLARiskInfo) HasFuture() bool       { return s.hasFuture }
+func (s *SLARiskInfo) WithOverrun(ttftMs, tpotMs float64) *SLARiskInfo {
+	if s == nil {
+		return nil
+	}
+	s.ttftOverrun = ttftMs
+	s.tpotOverrun = tpotMs
+	return s
+}
+
+func (s *SLARiskInfo) TTFTOverrun() float64 { return s.ttftOverrun }
+func (s *SLARiskInfo) TPOTOverrun() float64 { return s.tpotOverrun }
 
 // Clone implements fwkdl.Cloneable.
 func (s *SLARiskInfo) Clone() fwkdl.Cloneable {
