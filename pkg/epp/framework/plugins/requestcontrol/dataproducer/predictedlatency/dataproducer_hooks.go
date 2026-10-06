@@ -197,17 +197,26 @@ func (pl *PredictedLatency) attachDist(info *attrlatency.LatencyPredictionInfo, 
 	if info == nil || ctx == nil || ep == nil || ep.GetMetadata() == nil {
 		return
 	}
-	shape := ctx.latencyShapesForEndpoints[ep.GetMetadata().ID.Name]
-	x := distFeatures(shape, ep.GetMetrics(), ctx.inputTokenCount)
+	name := ep.GetMetadata().ID.Name
+	shape := ctx.latencyShapesForEndpoints[name]
+	metrics := ep.GetMetrics()
+	xAFT := distFeatures(shape, metrics, ctx.inputTokenCount)
 	ttftS, tpotS := ctx.ttftSLO, ctx.avgTPOTSLO
+	prefix := ctx.prefixCacheScoresForEndpoints[name]
+	var prefillIF, decodeIF int64
+	if snap, ok := ctx.inFlightLoadForEndpoints[ep.GetMetadata().ID.String()]; ok {
+		prefillIF = snap.tokens
+	}
+	xTTFT := exceedFeatures(shape, metrics, ctx.inputTokenCount, prefix, prefillIF, decodeIF, info.TTFT(), ttftS)
+	xTPOT := exceedFeatures(shape, metrics, ctx.inputTokenCount, prefix, prefillIF, decodeIF, info.TPOT(), tpotS)
 	info.WithDist(
-		pl.ttftExceed.Predict(x, ttftS),
-		pl.tpotExceed.Predict(x, tpotS),
-		pl.ttftAFT.Survival(x, ttftS),
-		pl.tpotAFT.Survival(x, tpotS),
-		pl.ttftAFT.ExpectedOverrun(x, ttftS),
-		pl.tpotAFT.ExpectedOverrun(x, tpotS),
-		pl.ttftAFT.ready() && pl.tpotAFT.ready(),
+		pl.ttftExceed.Predict(xTTFT, ttftS),
+		pl.tpotExceed.Predict(xTPOT, tpotS),
+		pl.ttftAFT.Survival(xAFT, ttftS),
+		pl.tpotAFT.Survival(xAFT, tpotS),
+		pl.ttftAFT.ExpectedOverrun(xAFT, ttftS),
+		pl.tpotAFT.ExpectedOverrun(xAFT, tpotS),
+		pl.ttftExceed.ready() && pl.tpotExceed.ready(),
 	)
 }
 
@@ -221,13 +230,18 @@ func (pl *PredictedLatency) observeDist(ctx *predictedLatencyCtx, pod string) {
 		metrics = m
 		break
 	}
-	x := distFeatures(shape, metrics, ctx.inputTokenCount)
+	xAFT := distFeatures(shape, metrics, ctx.inputTokenCount)
+	prefix := ctx.prefixCacheScoresForEndpoints[pod]
+	prefillIF := ctx.prefillTokensAtDispatch
+	decodeIF := ctx.decodeTokensAtDispatch
 	if ctx.ttft > 0 {
-		pl.ttftAFT.Observe(x, ctx.ttft)
+		pl.ttftAFT.Observe(xAFT, ctx.ttft)
+		x := exceedFeatures(shape, metrics, ctx.inputTokenCount, prefix, prefillIF, decodeIF, ctx.predictedTTFT, ctx.ttftSLO)
 		pl.ttftExceed.Observe(x, ctx.ttftSLO, ctx.ttft)
 	}
 	if ctx.avgTPOT > 0 {
-		pl.tpotAFT.Observe(x, ctx.avgTPOT)
+		pl.tpotAFT.Observe(xAFT, ctx.avgTPOT)
+		x := exceedFeatures(shape, metrics, ctx.inputTokenCount, prefix, prefillIF, decodeIF, ctx.avgPredictedTPOT, ctx.avgTPOTSLO)
 		pl.tpotExceed.Observe(x, ctx.avgTPOTSLO, ctx.avgTPOT)
 	}
 }

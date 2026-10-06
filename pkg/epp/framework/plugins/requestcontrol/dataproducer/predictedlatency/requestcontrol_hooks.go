@@ -225,19 +225,34 @@ func (pl *PredictedLatency) ResponseBody(ctx context.Context, request *fwksched.
 			if targetMetadata != nil {
 				pod = targetMetadata.ID.Name
 			}
-			pl.observeDist(predictedLatencyCtx, pod)
-			x := distFeatures(predictedLatencyCtx.latencyShapesForEndpoints[pod], nil, predictedLatencyCtx.inputTokenCount)
+			shape := predictedLatencyCtx.latencyShapesForEndpoints[pod]
+			xAFT := distFeatures(shape, nil, predictedLatencyCtx.inputTokenCount)
+			prefix := predictedLatencyCtx.prefixCacheScoresForEndpoints[pod]
+			xTTFT := exceedFeatures(shape, nil, predictedLatencyCtx.inputTokenCount, prefix,
+				predictedLatencyCtx.prefillTokensAtDispatch, predictedLatencyCtx.decodeTokensAtDispatch,
+				predictedLatencyCtx.predictedTTFT, predictedLatencyCtx.ttftSLO)
+			xTPOT := exceedFeatures(shape, nil, predictedLatencyCtx.inputTokenCount, prefix,
+				predictedLatencyCtx.prefillTokensAtDispatch, predictedLatencyCtx.decodeTokensAtDispatch,
+				predictedLatencyCtx.avgPredictedTPOT, predictedLatencyCtx.avgTPOTSLO)
+			// Log pre-update p, then Observe (no label leak into scored p).
+			pExcTTFT := pl.ttftExceed.Predict(xTTFT, predictedLatencyCtx.ttftSLO)
+			pExcTPOT := pl.tpotExceed.Predict(xTPOT, predictedLatencyCtx.avgTPOTSLO)
+			pAftTTFT := pl.ttftAFT.Survival(xAFT, predictedLatencyCtx.ttftSLO)
+			pAftTPOT := pl.tpotAFT.Survival(xAFT, predictedLatencyCtx.avgTPOTSLO)
 			logger.Info("distribution observation",
 				"ttft_ms", predictedLatencyCtx.ttft,
 				"slo_ttft_ms", predictedLatencyCtx.ttftSLO,
-				"p_aft_ttft", pl.ttftAFT.Survival(x, predictedLatencyCtx.ttftSLO),
-				"p_exc_ttft", pl.ttftExceed.Predict(x, predictedLatencyCtx.ttftSLO),
+				"pred_ttft_ms", predictedLatencyCtx.predictedTTFT,
+				"p_aft_ttft", pAftTTFT,
+				"p_exc_ttft", pExcTTFT,
 				"tpot_ms", predictedLatencyCtx.avgTPOT,
 				"slo_tpot_ms", predictedLatencyCtx.avgTPOTSLO,
-				"p_aft_tpot", pl.tpotAFT.Survival(x, predictedLatencyCtx.avgTPOTSLO),
-				"p_exc_tpot", pl.tpotExceed.Predict(x, predictedLatencyCtx.avgTPOTSLO),
+				"pred_tpot_ms", predictedLatencyCtx.avgPredictedTPOT,
+				"p_aft_tpot", pAftTPOT,
+				"p_exc_tpot", pExcTPOT,
 				"aft_ready", pl.ttftAFT.ready(),
 				"exc_ready", pl.ttftExceed.ready())
+			pl.observeDist(predictedLatencyCtx, pod)
 		}
 
 		id := request.Headers[reqcommon.RequestIDHeaderKey]

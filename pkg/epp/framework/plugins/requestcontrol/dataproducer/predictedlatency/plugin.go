@@ -83,8 +83,8 @@ type PredictedLatency struct {
 	residuals                    *residualTracker
 	ttftAFT                      *distAFT
 	tpotAFT                      *distAFT
-	ttftExceed                   *distLogistic
-	tpotExceed                   *distLogistic
+	ttftExceed                   *distMLP
+	tpotExceed                   *distMLP
 }
 
 // endpointInFlightLoad reads the InFlightLoad attribute published by the
