@@ -198,6 +198,9 @@ type LatencyShape struct {
 	SLOTTFTMs                float64 `json:"slo_ttft_ms,omitempty"`
 	SLOTPOTMs                float64 `json:"slo_tpot_ms,omitempty"`
 	UncachedRequestTokens    int64   `json:"uncached_request_tokens,omitempty"`
+	// ActiveReloadJobs is the scraped pod gauge of in-flight CPU→GPU H2D
+	// reload jobs (vllm:kv_offload_active_reload_jobs).
+	ActiveReloadJobs float64 `json:"active_reload_jobs,omitempty"`
 }
 
 type BulkTrainingRequest struct {

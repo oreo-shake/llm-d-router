@@ -90,10 +90,11 @@ func TestDistMLPSeparatesMissUsingLhat(t *testing.T) {
 }
 
 func TestExceedFeaturesPacksMargin(t *testing.T) {
-	x := exceedFeatures(latencypredictor.LatencyShape{UnmatchedTokens: 100}, nil, 1000, 0.5, 10, 20, 2000, 1000)
+	x := exceedFeatures(latencypredictor.LatencyShape{UnmatchedTokens: 100, ActiveReloadJobs: 2}, nil, 1000, 0.5, 10, 20, 2000, 1000)
 	require.Len(t, x, excFeatN)
 	assert.InDelta(t, 1.0, x[19], 1e-9) // (2000-1000)/1000
 	assert.InDelta(t, math.Log(1000), x[21], 1e-9)
+	assert.InDelta(t, 2.0, x[22], 1e-9)
 }
 
 func TestDistMLPResidualBoundedKeepsSafeLow(t *testing.T) {

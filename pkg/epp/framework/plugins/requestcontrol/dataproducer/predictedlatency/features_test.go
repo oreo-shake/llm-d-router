@@ -37,7 +37,7 @@ func TestPrefixShapeGPUCPUUnmatched(t *testing.T) {
 	assert.Equal(t, 4, s.mCPU)
 	assert.Equal(t, 6, s.unmatchedBlocks())
 
-	shape := buildLatencyShape(s, &fwkdl.Metrics{WaitingQueueSize: 2, KVCacheUsagePercent: 0.25}, 100, 80, 50, 20, 200, 40)
+	shape := buildLatencyShape(s, &fwkdl.Metrics{WaitingQueueSize: 2, KVCacheUsagePercent: 0.25}, 100, 80, 50, 20, 200, 40, 3)
 	assert.Equal(t, 6*16, shape.CachedGPUTokens)
 	assert.Equal(t, 4*16, shape.CachedCPUTokens)
 	assert.Equal(t, 6*16, shape.UnmatchedTokens)
@@ -46,6 +46,7 @@ func TestPrefixShapeGPUCPUUnmatched(t *testing.T) {
 	assert.InDelta(t, 0.75, shape.KVFreeFraction, 1e-9)
 	assert.Equal(t, int64(80), shape.UncachedRequestTokens)
 	assert.Equal(t, 200.0, shape.SLOTTFTMs)
+	assert.Equal(t, 3.0, shape.ActiveReloadJobs)
 }
 
 func TestResidualSigmaWarmsThenShrinks(t *testing.T) {

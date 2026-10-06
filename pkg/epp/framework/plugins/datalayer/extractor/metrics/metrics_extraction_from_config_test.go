@@ -289,6 +289,11 @@ func TestMetricsExtractionLoRAFamilyAbsentNoError(t *testing.T) {
 				CacheConfigNumGPUBlocksMetricName:  "512",
 			},
 		},
+		// Default vLLM customMetrics (ttft-cost + active reload). Present so
+		// a missing LoRA family remains the only optional absence under test.
+		{Name: "vllm:kv_offload_load_bytes_total", Value: 0},
+		{Name: "vllm:kv_offload_load_time_total", Value: 0},
+		{Name: "vllm:kv_offload_active_reload_jobs", Value: 0},
 	})
 	defer srv.Close()
 

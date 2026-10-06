@@ -41,6 +41,7 @@ Default `lambda: 0` → \(V_H\) is not used. Set `lambda > 0` and
 | Survival P(L>S), feasible flag | `SLARiskInfo`. In `cdf` mode: online AFT (`survivalModel: aft`, default) or exceedance MLP (\(\mathrm{logit}=z_{\mathrm{soft}}+\alpha\tanh(\mathrm{MLP})\); rich \(\phi\), \(\hat L\); local forward) when `DistReady`; otherwise lognormal wrap of the sidecar point pred |
 | GPU/CPU cached tokens, unmatched tokens, unmatched quadratic (n^2-m^2 blocks) | `predicted-latency-producer` from `PrefixCacheMatchInfo` |
 | Waiting tokens, KV free fraction, uncached request tokens, per-pod EWMA | `predicted-latency-producer` |
+| Active reload jobs (in-flight CPU→GPU H2D) | `predicted-latency-producer` from scraped `vllm:kv_offload_active_reload_jobs` |
 | Future cost V_H | `SLARiskInfo.FutureCost` from placement-eval sidecar |
 
 ### Tier table

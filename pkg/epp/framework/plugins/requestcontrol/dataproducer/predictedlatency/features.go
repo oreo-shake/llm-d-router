@@ -23,10 +23,15 @@ import (
 	"github.com/llm-d/llm-d-router/pkg/epp/framework/interface/plugin"
 	fwksched "github.com/llm-d/llm-d-router/pkg/epp/framework/interface/scheduling"
 	attrconcurrency "github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/datalayer/attribute/concurrency"
+	attrmetrics "github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/datalayer/attribute/metrics"
 	attrprefix "github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/datalayer/attribute/prefix"
 	latencypredictor "github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/requestcontrol/dataproducer/predictedlatency/latencypredictorclient"
 	"github.com/llm-d/llm-d-router/pkg/epp/framework/plugins/scheduling/scorer/ttftcost"
 )
+
+// Attribute key from core-metrics-extractor customMetrics for
+// vllm:kv_offload_active_reload_jobs.
+const activeReloadJobsAttrKey = "kv_offload_active_reload_jobs"
 
 // prefixShape is the per-endpoint KV geometry captured at Produce time.
 type prefixShape struct {
@@ -90,6 +95,7 @@ func buildLatencyShape(
 	uncached int64,
 	ewmaTTFT, ewmaTPOT float64,
 	sloTTFT, sloTPOT float64,
+	activeReloadJobs float64,
 ) latencypredictor.LatencyShape {
 	bs := s.blockSize
 	if bs <= 0 {
@@ -109,6 +115,9 @@ func buildLatencyShape(
 			kv = 1
 		}
 		kvFree = 1 - kv
+	}
+	if activeReloadJobs < 0 {
+		activeReloadJobs = 0
 	}
 	unmatched := s.unmatchedBlocks()
 	nF := float64(s.n)
@@ -130,6 +139,7 @@ func buildLatencyShape(
 		SLOTTFTMs:                sloTTFT,
 		SLOTPOTMs:                sloTPOT,
 		UncachedRequestTokens:    uncached,
+		ActiveReloadJobs:         activeReloadJobs,
 	}
 }
 
@@ -146,4 +156,22 @@ func uncachedTokens(endpoint fwksched.Endpoint, key plugin.DataKey) int64 {
 		return 0
 	}
 	return u.Tokens
+}
+
+func activeReloadJobs(endpoint fwksched.Endpoint) float64 {
+	if endpoint == nil {
+		return 0
+	}
+	raw, ok := endpoint.Get(attrmetrics.ScalarMetricDataKey(activeReloadJobsAttrKey))
+	if !ok {
+		return 0
+	}
+	v, ok := raw.(attrmetrics.ScalarMetricValue)
+	if !ok {
+		return 0
+	}
+	if float64(v) < 0 {
+		return 0
+	}
+	return float64(v)
 }

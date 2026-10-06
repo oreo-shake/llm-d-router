@@ -106,6 +106,11 @@ var defaultEngineConfigs = []engineConfigParams{
 				AttributeKey: "kv_offload_load_time",
 				MetricSpec:   "vllm:kv_offload_load_time_total",
 			},
+			{
+				// In-flight CPU→GPU H2D reload jobs (OffloadingConnector).
+				AttributeKey: "kv_offload_active_reload_jobs",
+				MetricSpec:   "vllm:kv_offload_active_reload_jobs",
+			},
 		},
 	},
 	{

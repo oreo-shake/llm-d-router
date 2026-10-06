@@ -36,7 +36,7 @@ const (
 	// logit = softWrapLogit + mlpResidAlpha * tanh(MLP); soft wrap is the
 	// base; the net learns a bounded residual so rare-positive SGD cannot
 	// drive mean p far above the miss rate.
-	excFeatN      = 22
+	excFeatN      = 23
 	mlpH1         = 32
 	mlpH2         = 16
 	mlpLR         = 0.01
@@ -390,6 +390,7 @@ func exceedFeatures(
 	x[19] = margin
 	x[20] = math.Log1p(predMs) / 10
 	x[21] = math.Log(sloMs)
+	x[22] = s.ActiveReloadJobs
 	return x
 }
 

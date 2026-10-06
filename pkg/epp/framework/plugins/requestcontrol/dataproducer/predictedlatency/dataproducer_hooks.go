@@ -69,6 +69,7 @@ func (pl *PredictedLatency) Produce(ctx context.Context, request *fwksched.Infer
 			uncachedTokens(endpoint, pl.uncachedTokensDataKey),
 			ewmaTTFT, ewmaTPOT,
 			predictedLatencyCtx.ttftSLO, predictedLatencyCtx.avgTPOTSLO,
+			activeReloadJobs(endpoint),
 		)
 
 		if pl.config.UseEncoderCacheFeatures {
